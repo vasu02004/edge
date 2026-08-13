@@ -10,7 +10,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from camera.capture import open_camera
-from config import BRANCH_ID, CAMERA_SOURCE, ZONE_CONFIG_PATH, parse_camera_source
+from config import BRANCH_ID, CAMERA_SOURCE, FRAME_HEIGHT, FRAME_WIDTH, ZONE_CONFIG_PATH, parse_camera_source
 from tools.zone_state import ZoneAnnotatorState
 
 ZONE_NAMES = ["vault_zone", "table_zone", "boundary"]
@@ -34,13 +34,13 @@ def grab_reference_frame(image_path, cam_source):
         frame = cv2.imread(image_path)
         if frame is None:
             raise RuntimeError(f"Could not read image: {image_path}")
-        return frame
-    cap = open_camera(cam_source)
-    ok, frame = cap.read()
-    cap.release()
-    if not ok:
-        raise RuntimeError("Could not grab a frame from the camera")
-    return frame
+    else:
+        cap = open_camera(cam_source)
+        ok, frame = cap.read()
+        cap.release()
+        if not ok:
+            raise RuntimeError("Could not grab a frame from the camera")
+    return cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
 
 
 def render(frame, state):

@@ -10,8 +10,8 @@ def parse_camera_source(raw: str):
 
 CAMERA_SOURCE = parse_camera_source(os.getenv("CAMERA_SOURCE", "0"))
 
-FRAME_WIDTH = int(os.getenv("FRAME_WIDTH", "1280"))
-FRAME_HEIGHT = int(os.getenv("FRAME_HEIGHT", "720"))
+FRAME_WIDTH = int(os.getenv("FRAME_WIDTH", "640"))
+FRAME_HEIGHT = int(os.getenv("FRAME_HEIGHT", "360"))
 
 ARUCO_DICTIONARY = os.getenv("ARUCO_DICTIONARY", "DICT_6X6_250")
 

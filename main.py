@@ -4,7 +4,7 @@ import time
 import cv2
 
 from camera.capture import open_camera
-from config import CAMERA_SOURCE, parse_camera_source
+from config import CAMERA_SOURCE, FRAME_HEIGHT, FRAME_WIDTH, parse_camera_source
 from aurus_guard.client import AurusGuardClient
 from detection.aruco_detector import ArucoDetector
 from detection.zones import ZoneChecker
@@ -23,6 +23,7 @@ ZONE_DRAW_COLORS = {
 
 #will be changed after the camera is placed in a branch with its height and area coverage
 DETECTION_FRAME_INTERVAL = 3
+CAPTURE_LOOP_DELAY = 0.01
 
 
 def parse_args():
@@ -95,6 +96,7 @@ def main():
                 time.sleep(0.1)
                 continue
 
+            frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
             frame_count += 1
             if frame_count % DETECTION_FRAME_INTERVAL == 0:
                 detections = detector.detect(frame)
@@ -148,12 +150,14 @@ def main():
                 for d in registered:
                     d["state"] = tray_state_machine.state_for(d["tray_label"])
 
-            cv2.imshow(window_name, annotate(frame, registered, zones))
-            if first_frame:
-                cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
-                first_frame = False
+                cv2.imshow(window_name, annotate(frame, registered, zones))
+                if first_frame:
+                    cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
+                    first_frame = False
+
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
+            time.sleep(CAPTURE_LOOP_DELAY)
     finally:
         cap.release()
         cv2.destroyAllWindows()
