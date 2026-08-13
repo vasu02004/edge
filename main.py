@@ -21,6 +21,9 @@ ZONE_DRAW_COLORS = {
     "boundary": (255, 255, 0),
 }
 
+#will be changed after the camera is placed in a branch with its height and area coverage
+DETECTION_FRAME_INTERVAL = 3
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -81,6 +84,10 @@ def main():
     print("If you don't see the window, check Cmd+Tab / other desktops — it opens at (100, 100).")
     try:
         first_frame = True
+        frame_count = 0
+        registered = []
+        last_logged_zone = {}
+        last_within_boundary = {}
         while True:
             ok, frame = cap.read()
             if not ok:
@@ -88,52 +95,58 @@ def main():
                 time.sleep(0.1)
                 continue
 
-            detections = detector.detect(frame)
-            registered = []
-            for d in detections:
-                label = registry.label_for(d["id"])
-                if label is None:
-                    continue
-                d["tray_label"] = label
-                zone = zones.classify(d["centroid"])
-                d["zone"] = zone
-                registered.append(d)
+            frame_count += 1
+            if frame_count % DETECTION_FRAME_INTERVAL == 0:
+                detections = detector.detect(frame)
+                registered = []
+                for d in detections:
+                    label = registry.label_for(d["id"])
+                    if label is None:
+                        continue
+                    d["tray_label"] = label
+                    zone = zones.classify(d["centroid"])
+                    d["zone"] = zone
+                    registered.append(d)
 
-                cx, cy = d["centroid"]
-                print(
-                    f"[{time.strftime('%H:%M:%S')}] tray={label} zone={zone} marker_id={d['id']} "
-                    f"centroid=({cx:.1f}, {cy:.1f}) corners={d['corners'].tolist()}"
-                )
-
-                if not zones.is_within_boundary(d["centroid"]):
-                    print(f"[{time.strftime('%H:%M:%S')}] EVENT_CROSSED_BOUNDARY tray={label}")
-
-            visible_this_frame = {d["tray_label"]: d["zone"] for d in registered}
-
-            for label, old_state, new_state in tray_state_machine.update(visible_this_frame):
-                print(f"[{time.strftime('%H:%M:%S')}] STATE_TRANSITION tray={label} {old_state} -> {new_state}")
-
-                if new_state == TRAY_PICKED:
-                    event, details = check_wrong_tray(label, aurus_guard_client, registry)
-                    if event == "WRONG_TRAY":
+                    if last_logged_zone.get(label) != zone:
+                        cx, cy = d["centroid"]
                         print(
-                            f"{RED}[{time.strftime('%H:%M:%S')}] ALERT_WRONG_TRAY "
-                            f"picked={details['picked']} expected={details['expected']}{RESET}"
+                            f"[{time.strftime('%H:%M:%S')}] tray={label} zone={zone} marker_id={d['id']} "
+                            f"centroid=({cx:.1f}, {cy:.1f}) corners={d['corners'].tolist()}"
                         )
-                    elif event == "NO_ACTIVE_ASSIGNMENT":
-                        print(
-                            f"[{time.strftime('%H:%M:%S')}] NOTICE_NO_ACTIVE_ASSIGNMENT picked={details['picked']}"
-                        )
-                    elif event == "ASSIGNMENT_LOOKUP_FAILED":
-                        print(
-                            f"[{time.strftime('%H:%M:%S')}] WARNING_ASSIGNMENT_LOOKUP_FAILED "
-                            f"picked={details['picked']} reason={details['reason']}"
-                        )
-                    else:
-                        print(f"[{time.strftime('%H:%M:%S')}] CORRECT_TRAY_PICKED picked={details['picked']}")
+                        last_logged_zone[label] = zone
 
-            for d in registered:
-                d["state"] = tray_state_machine.state_for(d["tray_label"])
+                    within_boundary = zones.is_within_boundary(d["centroid"])
+                    if last_within_boundary.get(label, True) and not within_boundary:
+                        print(f"[{time.strftime('%H:%M:%S')}] EVENT_CROSSED_BOUNDARY tray={label}")
+                    last_within_boundary[label] = within_boundary
+
+                visible_this_frame = {d["tray_label"]: d["zone"] for d in registered}
+
+                for label, old_state, new_state in tray_state_machine.update(visible_this_frame):
+                    print(f"[{time.strftime('%H:%M:%S')}] STATE_TRANSITION tray={label} {old_state} -> {new_state}")
+
+                    if new_state == TRAY_PICKED:
+                        event, details = check_wrong_tray(label, aurus_guard_client, registry)
+                        if event == "WRONG_TRAY":
+                            print(
+                                f"{RED}[{time.strftime('%H:%M:%S')}] ALERT_WRONG_TRAY "
+                                f"picked={details['picked']} expected={details['expected']}{RESET}"
+                            )
+                        elif event == "NO_ACTIVE_ASSIGNMENT":
+                            print(
+                                f"[{time.strftime('%H:%M:%S')}] NOTICE_NO_ACTIVE_ASSIGNMENT picked={details['picked']}"
+                            )
+                        elif event == "ASSIGNMENT_LOOKUP_FAILED":
+                            print(
+                                f"[{time.strftime('%H:%M:%S')}] WARNING_ASSIGNMENT_LOOKUP_FAILED "
+                                f"picked={details['picked']} reason={details['reason']}"
+                            )
+                        else:
+                            print(f"[{time.strftime('%H:%M:%S')}] CORRECT_TRAY_PICKED picked={details['picked']}")
+
+                for d in registered:
+                    d["state"] = tray_state_machine.state_for(d["tray_label"])
 
             cv2.imshow(window_name, annotate(frame, registered, zones))
             if first_frame:
