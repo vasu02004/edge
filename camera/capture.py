@@ -19,12 +19,6 @@ def _candidate_urls(url: str) -> list:
 
 
 class MjpegHttpStream:
-    """Manual MJPEG-over-HTTP reader for streams cv2.VideoCapture can't parse
-    (DroidCam's raw multipart stream is a common case). Mimics the subset of
-    cv2.VideoCapture's interface main.py relies on: read() -> (ok, frame),
-    release().
-    """
-
     def __init__(self, url: str, timeout: float = 5.0):
         self._stream = None
         self._buffer = b""
@@ -54,7 +48,7 @@ class MjpegHttpStream:
                     frame = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
                     if frame is not None:
                         return True, frame
-                    continue  # corrupt chunk, discard and keep scanning
+                    continue
                 chunk = self._stream.read(4096)
                 if not chunk:
                     return False, None
@@ -80,8 +74,6 @@ def open_camera(source=None):
             if ok:
                 return cap
             cap.release()
-        # cv2's FFmpeg backend can't parse DroidCam's raw MJPEG stream on this
-        # system — fall back to a manual byte-scanning JPEG reader.
         stream = MjpegHttpStream(source)
         if not stream.isOpened():
             raise RuntimeError(f"Could not open camera source: {source!r}")

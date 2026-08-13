@@ -7,15 +7,6 @@ from config import ZONE_CONFIG_PATH
 
 
 class ZoneChecker:
-    """Classifies a centroid as VAULT / TABLE / TRANSIT against the polygons
-    saved by tools/zone_annotator.py. Plain cv2.pointPolygonTest — no need
-    for a heavier geometry library for two simple quadrilaterals.
-
-    `boundary` is a third, manually-drawn polygon (same tool, same JSON) used
-    only for is_within_boundary() -- it's excluded from classify()'s
-    VAULT/TABLE/TRANSIT decision, since it's a boundary check, not a
-    location type."""
-
     BOUNDARY_ZONE_NAME = "boundary"
 
     def __init__(self, path: str = ZONE_CONFIG_PATH):

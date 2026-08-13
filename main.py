@@ -16,9 +16,9 @@ RED = "\033[91m"
 RESET = "\033[0m"
 
 ZONE_DRAW_COLORS = {
-    "vault_zone": (0, 165, 255),  # orange
-    "table_zone": (255, 0, 255),  # magenta
-    "boundary": (255, 255, 0),  # cyan
+    "vault_zone": (0, 165, 255),
+    "table_zone": (255, 0, 255),
+    "boundary": (255, 255, 0),
 }
 
 
@@ -93,7 +93,7 @@ def main():
             for d in detections:
                 label = registry.label_for(d["id"])
                 if label is None:
-                    continue  # unregistered marker ID — not one of our trays, ignore silently
+                    continue
                 d["tray_label"] = label
                 zone = zones.classify(d["centroid"])
                 d["zone"] = zone
@@ -114,9 +114,6 @@ def main():
                 print(f"[{time.strftime('%H:%M:%S')}] STATE_TRANSITION tray={label} {old_state} -> {new_state}")
 
                 if new_state == TRAY_PICKED:
-                    # Looked up once, right here, at the moment of pickup --
-                    # not every frame, to avoid a network round-trip in the
-                    # tight per-frame loop.
                     event, details = check_wrong_tray(label, aurus_guard_client, registry)
                     if event == "WRONG_TRAY":
                         print(
@@ -140,8 +137,6 @@ def main():
 
             cv2.imshow(window_name, annotate(frame, registered, zones))
             if first_frame:
-                # Force the window to the front on the first frame — cv2 windows
-                # can otherwise open behind the terminal/editor with no focus.
                 cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
                 first_frame = False
             if cv2.waitKey(1) & 0xFF == ord("q"):

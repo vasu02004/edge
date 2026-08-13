@@ -1,11 +1,4 @@
 class ZoneAnnotatorState:
-    """Polygon-collection state for the zone annotator tool.
-
-    Deliberately has no cv2/GUI dependency so this logic is unit-testable
-    without a display, camera, or mouse. The interactive tool (zone_annotator.py)
-    is a thin cv2 event loop wrapped around this.
-    """
-
     def __init__(self, zone_names):
         self.zone_names = list(zone_names)
         self._zones = {name: [] for name in self.zone_names}
@@ -35,8 +28,6 @@ class ZoneAnnotatorState:
         return False
 
     def finish_current_zone(self) -> bool:
-        """Move to the next zone. Fails if the current zone has < 3 points
-        (not a valid polygon) or there is no current zone left."""
         name = self.current_zone_name
         if name is None or len(self._zones[name]) < 3:
             return False

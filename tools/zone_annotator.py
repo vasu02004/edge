@@ -1,21 +1,3 @@
-"""
-One-time tool: click out vault_zone, table_zone, and boundary polygons on a
-single reference frame (grabbed live from the camera, or loaded from a saved
-image), then save them to the branch's zone config JSON.
-
-`boundary` is the overall working-area outline (drawn manually, same as the
-other two) that main.py checks tray markers against for EVENT_CROSSED_BOUNDARY
--- draw it to enclose vault_zone + table_zone + the space between them,
-however you want that shaped for your actual room layout.
-
-Controls:
-  left-click  add a point to the current zone's polygon
-  n           finish current zone (needs >= 3 points) and move to the next
-  u           undo the last point in the current zone
-  s           save (only once all zones are finished) and quit
-  q           quit without saving
-"""
-
 import argparse
 import json
 import os
@@ -25,9 +7,6 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-# Allow running this script directly (python tools/zone_annotator.py) as well
-# as via -m: `python tools/zone_annotator.py` otherwise puts tools/ on
-# sys.path instead of edge/, breaking these sibling-module imports.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from camera.capture import open_camera
@@ -36,14 +15,14 @@ from tools.zone_state import ZoneAnnotatorState
 
 ZONE_NAMES = ["vault_zone", "table_zone", "boundary"]
 ZONE_COLORS = {
-    "vault_zone": (0, 165, 255),  # orange
-    "table_zone": (255, 0, 255),  # magenta
-    "boundary": (255, 255, 0),  # cyan
+    "vault_zone": (0, 165, 255),
+    "table_zone": (255, 0, 255),
+    "boundary": (255, 255, 0),
 }
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser()
     parser.add_argument("--cam", default=None, help="Camera source override (device index or URL)")
     parser.add_argument("--image", default=None, help="Use a saved image file instead of the live camera")
     parser.add_argument("--out", default=ZONE_CONFIG_PATH, help="Output zone config JSON path")

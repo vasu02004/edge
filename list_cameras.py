@@ -1,8 +1,3 @@
-"""
-Probe camera indices 0-5, save one snapshot from each that opens, so you can
-visually tell which index is your laptop webcam vs DroidCam.
-"""
-
 import os
 
 import cv2
