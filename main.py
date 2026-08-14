@@ -56,8 +56,8 @@ def annotate(frame, registered_detections, zones):
             f"{d['tray_label']} (id={d['id']}) [{d['zone']}] {d['state']}",
             (int(cx) + 8, int(cy)),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 255, 0),
+            0.4,
+            (0, 0, 139),
             2,
         )
     return annotated
