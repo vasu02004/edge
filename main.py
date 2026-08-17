@@ -64,13 +64,21 @@ def annotate(frame, registered_detections, zones):
         cv2.polylines(annotated, [pts], True, (0, 255, 0), 2)
         cx, cy = d["centroid"]
         cv2.circle(annotated, (int(cx), int(cy)), 4, (0, 0, 255), -1)
+
+        if d.get("within_boundary", True):
+            label_text = f"{d['tray_label']} (id={d['id']}) [{d['zone']}] {d['state']}"
+            label_color = (0, 0, 139)
+        else:
+            label_text = f"{d['tray_label']} (id={d['id']}) OUT_OF_BOUNDARY"
+            label_color = (0, 0, 255)
+
         cv2.putText(
             annotated,
-            f"{d['tray_label']} (id={d['id']}) [{d['zone']}] {d['state']}",
+            label_text,
             (int(cx) + 8, int(cy)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.4,
-            (0, 0, 139),
+            label_color,
             2,
         )
     return annotated
@@ -138,6 +146,7 @@ def main():
                         last_logged_zone[label] = zone
 
                     within_boundary = zones.is_within_boundary(d["centroid"])
+                    d["within_boundary"] = within_boundary
                     if last_within_boundary.get(label, True) and not within_boundary:
                         print(f"[{time.strftime('%H:%M:%S')}] EVENT_CROSSED_BOUNDARY tray={label}")
                     last_within_boundary[label] = within_boundary
