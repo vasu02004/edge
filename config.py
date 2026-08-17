@@ -1,5 +1,9 @@
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 def parse_camera_source(raw: str):
     raw = raw.strip()
