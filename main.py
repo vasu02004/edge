@@ -11,6 +11,7 @@ from detection.zones import ZoneChecker
 from registry.tray_registry import TrayRegistry
 from state_machine.rules import check_wrong_tray
 from state_machine.tray_state import TRAY_PICKED, TrayStateMachine
+from streaming.mjpeg_server import MJPEGStreamer
 
 RED = "\033[91m"
 RESET = "\033[0m"
@@ -33,6 +34,18 @@ def parse_args():
         default=None,
         help="Camera source: device index (e.g. 1) or stream URL (e.g. http://<ip>:4747/mjpegfeed). "
         "Overrides the CAMERA_SOURCE env var if given.",
+    )
+    parser.add_argument(
+        "--display",
+        action="store_true",
+        help="Show the annotated feed in a local cv2 window (requires a display/X server). "
+        "Default is headless: serve the feed over HTTP instead.",
+    )
+    parser.add_argument(
+        "--stream-port",
+        type=int,
+        default=8080,
+        help="Port for the headless MJPEG HTTP stream (default 8080). Ignored with --display.",
     )
     return parser.parse_args()
 
@@ -76,13 +89,19 @@ def main():
     tray_state_machine = TrayStateMachine()
     aurus_guard_client = AurusGuardClient()
 
-    window_name = "Vault Tracker - Step 2 (press q to quit)"
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.moveWindow(window_name, 100, 100)
-    cv2.resizeWindow(window_name, 960, 540)
+    streamer = None
+    if args.display:
+        window_name = "Vault Tracker - Step 2 (press q to quit)"
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        cv2.moveWindow(window_name, 100, 100)
+        cv2.resizeWindow(window_name, 960, 540)
+        print("Camera opened. Press 'q' in the video window (or Ctrl+C here) to stop.")
+        print("If you don't see the window, check Cmd+Tab / other desktops — it opens at (100, 100).")
+    else:
+        streamer = MJPEGStreamer(port=args.stream_port)
+        streamer.start()
+        print("Camera opened. Ctrl+C here to stop.")
 
-    print("Camera opened. Press 'q' in the video window (or Ctrl+C here) to stop.")
-    print("If you don't see the window, check Cmd+Tab / other desktops — it opens at (100, 100).")
     try:
         first_frame = True
         frame_count = 0
@@ -150,17 +169,24 @@ def main():
                 for d in registered:
                     d["state"] = tray_state_machine.state_for(d["tray_label"])
 
-                cv2.imshow(window_name, annotate(frame, registered, zones))
-                if first_frame:
-                    cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
-                    first_frame = False
+                annotated = annotate(frame, registered, zones)
+                if args.display:
+                    cv2.imshow(window_name, annotated)
+                    if first_frame:
+                        cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
+                        first_frame = False
+                else:
+                    streamer.update_frame(annotated)
 
-            if cv2.waitKey(1) & 0xFF == ord("q"):
+            if args.display and cv2.waitKey(1) & 0xFF == ord("q"):
                 break
             time.sleep(CAPTURE_LOOP_DELAY)
     finally:
         cap.release()
-        cv2.destroyAllWindows()
+        if args.display:
+            cv2.destroyAllWindows()
+        if streamer is not None:
+            streamer.stop()
 
 
 if __name__ == "__main__":
