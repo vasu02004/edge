@@ -7,6 +7,7 @@ from camera.capture import open_camera
 from config import CAMERA_SOURCE, FRAME_HEIGHT, FRAME_WIDTH, parse_camera_source
 from aurus_guard.client import AurusGuardClient
 from detection.aruco_detector import ArucoDetector
+from detection.open_close_detector import OpenCloseDetector
 from detection.zones import ZoneChecker
 from registry.tray_registry import TrayRegistry
 from state_machine.rules import check_wrong_tray
@@ -21,6 +22,8 @@ ZONE_DRAW_COLORS = {
     "table_zone": (255, 0, 255),
     "boundary": (255, 255, 0),
 }
+
+OPEN_CLOSE_LABEL_COLORS = {"open": (0, 200, 0), "closed": (0, 0, 220)}
 
 #will be changed after the camera is placed in a branch with its height and area coverage
 DETECTION_FRAME_INTERVAL = 3
@@ -50,7 +53,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def annotate(frame, registered_detections, zones):
+def annotate(frame, registered_detections, zones, open_close_detections=()):
     annotated = frame.copy()
 
     for zone_name, color in ZONE_DRAW_COLORS.items():
@@ -58,6 +61,20 @@ def annotate(frame, registered_detections, zones):
         if polygon is not None:
             thickness = 2 if zone_name == "boundary" else 1
             cv2.polylines(annotated, [polygon], True, color, thickness)
+
+    for oc in open_close_detections:
+        x1, y1, x2, y2 = oc["box"]
+        color = OPEN_CLOSE_LABEL_COLORS.get(oc["label"], (255, 255, 255))
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+        cv2.putText(
+            annotated,
+            f"{oc['label']} ({oc['confidence']:.0%})",
+            (x1, max(20, y1 - 8)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            color,
+            2,
+        )
 
     for d in registered_detections:
         pts = d["corners"].astype(int)
@@ -90,6 +107,8 @@ def main():
     print(f"Opening camera source: {source!r}")
     cap = open_camera(source)
     detector = ArucoDetector()
+    open_close_detector = OpenCloseDetector()
+    print(f"Loaded open/close model, device={open_close_detector.device}")
     registry = TrayRegistry()
     print(f"Loaded tray registry for {registry.branch_id}: {registry.registered_labels()}")
     zones = ZoneChecker()
@@ -116,6 +135,7 @@ def main():
         registered = []
         last_logged_zone = {}
         last_within_boundary = {}
+        last_open_close_label = None
         while True:
             ok, frame = cap.read()
             if not ok:
@@ -151,6 +171,22 @@ def main():
                         print(f"[{time.strftime('%H:%M:%S')}] EVENT_CROSSED_BOUNDARY tray={label}")
                     last_within_boundary[label] = within_boundary
 
+                open_close_detections = open_close_detector.detect(frame)
+                if open_close_detections:
+                    best = max(open_close_detections, key=lambda d: d["confidence"])
+                    current_open_close_label = best["label"]
+                else:
+                    current_open_close_label = None
+                if current_open_close_label != last_open_close_label:
+                    if current_open_close_label is not None:
+                        print(
+                            f"[{time.strftime('%H:%M:%S')}] OPEN_CLOSE_DETECTION "
+                            f"label={best['label']} confidence={best['confidence']:.0%} box={best['box']}"
+                        )
+                    else:
+                        print(f"[{time.strftime('%H:%M:%S')}] OPEN_CLOSE_DETECTION label=none")
+                    last_open_close_label = current_open_close_label
+
                 visible_this_frame = {d["tray_label"]: d["zone"] for d in registered}
 
                 for label, old_state, new_state in tray_state_machine.update(visible_this_frame):
@@ -178,7 +214,7 @@ def main():
                 for d in registered:
                     d["state"] = tray_state_machine.state_for(d["tray_label"])
 
-                annotated = annotate(frame, registered, zones)
+                annotated = annotate(frame, registered, zones, open_close_detections)
                 if args.display:
                     cv2.imshow(window_name, annotated)
                     if first_frame:

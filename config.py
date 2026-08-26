@@ -27,3 +27,7 @@ AURUS_GUARD_BASE_URL = os.getenv("AURUS_GUARD_BASE_URL", "http://localhost:3000/
 AURUS_GUARD_DEV_USER_PROFILE = os.getenv(
     "AURUS_GUARD_DEV_USER_PROFILE", '{"id":"edge-tracker","roles":[{"name":"agent"}]}'
 )
+
+OPEN_CLOSE_MODEL_PATH = os.getenv("OPEN_CLOSE_MODEL_PATH", "models/yolo26n_best.pt")
+OPEN_CLOSE_CONF_THRESHOLD = float(os.getenv("OPEN_CLOSE_CONF_THRESHOLD", "0.5"))
+OPEN_CLOSE_IMG_SIZE = int(os.getenv("OPEN_CLOSE_IMG_SIZE", "640"))
