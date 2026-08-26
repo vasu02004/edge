@@ -1,0 +1,21 @@
+description: Ultralytics YOLO26n model trained on /content/data_detect/data.yaml
+author: Ultralytics
+date: '2026-08-26T17:39:54.887535+00:00'
+version: 8.4.129
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: detect
+head: Detect
+batch: 1
+imgsz:
+- 320
+- 320
+names:
+  0: closed
+  1: open
+args:
+  batch: 1
+  quantize: null
+channels: 3
+end2end: false
