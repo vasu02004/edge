@@ -1,8 +1,5 @@
 opencv-contrib-python
 numpy
-torch
-torchvision
-ultralytics
 ncnn
 requests
 python-dotenv

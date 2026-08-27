@@ -1,5 +1,7 @@
 import argparse
+import csv
 import os
+import subprocess
 import time
 
 import cv2
@@ -30,13 +32,75 @@ def proc_stats():
     except (OSError, IndexError, ValueError):
         return None, None
 
+
+def system_cpu_times():
+    """(idle_jiffies, total_jiffies) summed across all cores, from /proc/stat's
+    aggregate 'cpu' line. Two samples at the start/end of a window give
+    system-wide CPU% the same way proc_stats()'s utime/stime deltas give
+    per-process CPU% — lets a soak test tell "my process is busy" apart from
+    "something else on the Pi is competing for CPU."""
+    try:
+        with open("/proc/stat") as f:
+            parts = f.readline().split()
+        values = list(map(int, parts[1:]))
+        idle = values[3] + (values[4] if len(values) > 4 else 0)  # idle + iowait
+        return idle, sum(values)
+    except (OSError, IndexError, ValueError):
+        return None, None
+
+
+def system_stats():
+    """(mem_available_mb, mem_used_pct, cpu_temp_c, throttled_hex) for the host.
+    Each is None where unavailable (e.g. not Linux, or not a Raspberry Pi for
+    throttled_hex). throttled_hex != "0x0" means a Pi under-voltage/thermal-
+    throttle event happened at some point since boot — a long soak test should
+    check this, since throttling silently invalidates CPU/latency numbers."""
+    mem_total_mb, mem_available_mb = None, None
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    mem_total_mb = int(line.split()[1]) / 1024
+                elif line.startswith("MemAvailable:"):
+                    mem_available_mb = int(line.split()[1]) / 1024
+    except (OSError, IndexError, ValueError):
+        pass
+    mem_used_pct = (
+        100 * (1 - mem_available_mb / mem_total_mb)
+        if mem_total_mb and mem_available_mb is not None
+        else None
+    )
+
+    cpu_temp_c = None
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp") as f:
+            cpu_temp_c = int(f.read().strip()) / 1000
+    except (OSError, ValueError):
+        pass
+
+    throttled_hex = None
+    try:
+        result = subprocess.run(
+            ["vcgencmd", "get_throttled"], capture_output=True, text=True, timeout=1
+        )
+        if result.returncode == 0 and "=" in result.stdout:
+            throttled_hex = result.stdout.strip().split("=", 1)[1]
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    return mem_available_mb, mem_used_pct, cpu_temp_c, throttled_hex
+
+
 from camera.capture import open_camera
 from config import (
     CAMERA_SOURCE,
     FRAME_HEIGHT,
     FRAME_WIDTH,
     OPEN_CLOSE_IMG_SIZE,
+    MOTION_GATING_ENABLED,
     OPEN_CLOSE_MODEL_PATH,
+    STATS_LOG_PATH,
+    VERBOSE_LATENCY_LOGS,
     parse_camera_source,
 )
 from aurus_guard.client import AurusGuardClient
@@ -65,10 +129,10 @@ ARUCO_FRAME_INTERVAL = 3
 YOLO_FRAME_INTERVAL = 6
 CAPTURE_LOOP_DELAY = 0.01
 
-# Motion gating: skip a detection cycle entirely if the scene hasn't changed since
-# the last one — trays sit still between pick/place events, so most cycles on a
-# fixed vault camera are otherwise wasted work.
-MOTION_GATING_ENABLED = False
+# Motion gating (MOTION_GATING_ENABLED itself is env-driven, see config.py):
+# skip a detection cycle entirely if the scene hasn't changed since the last
+# one — trays sit still between pick/place events, so most cycles on a fixed
+# vault camera are otherwise wasted work.
 MOTION_CHECK_SIZE = (160, 90)
 MOTION_THRESHOLD = 2.0
 MOTION_FORCE_RECHECK_EVERY = 30
@@ -197,6 +261,7 @@ def main():
         f"motion_threshold={MOTION_THRESHOLD} capture_delay={CAPTURE_LOOP_DELAY}"
     )
 
+    stats_log_file = None
     try:
         first_frame = True
         frame_count = 0
@@ -210,11 +275,28 @@ def main():
 
         stats_window_start = time.monotonic()
         stats_cpu_start, _ = proc_stats()
+        system_idle_start, system_total_start = system_cpu_times()
         frames_captured = 0
         grab_fails = 0
         motion_skips = 0
         aruco_times = []
         yolo_times = []
+
+        stats_log_is_new = not os.path.exists(STATS_LOG_PATH) or os.path.getsize(STATS_LOG_PATH) == 0
+        stats_log_file = open(STATS_LOG_PATH, "a", newline="")
+        stats_csv = csv.writer(stats_log_file)
+        if stats_log_is_new:
+            stats_csv.writerow(
+                [
+                    "timestamp", "elapsed_s", "fps", "cpu_pct", "system_cpu_pct", "rss_mb",
+                    "mem_available_mb", "mem_used_pct", "cpu_temp_c", "throttled_hex",
+                    "frames", "grab_fails", "motion_skips",
+                    "aruco_calls", "aruco_avg_ms", "aruco_min_ms", "aruco_max_ms",
+                    "yolo_calls", "yolo_avg_ms", "yolo_min_ms", "yolo_max_ms",
+                ]
+            )
+            stats_log_file.flush()
+        print(f"Logging periodic CPU/RAM/latency stats to {STATS_LOG_PATH}")
 
         while True:
             ok, frame = cap.read()
@@ -244,7 +326,8 @@ def main():
                     t0 = time.perf_counter()
                     detections = detector.detect(frame)
                     aruco_ms = (time.perf_counter() - t0) * 1000
-                    print(f"[{time.strftime('%H:%M:%S')}] LATENCY aruco_ms={aruco_ms:.1f}")
+                    if VERBOSE_LATENCY_LOGS:
+                        print(f"[{time.strftime('%H:%M:%S')}] LATENCY aruco_ms={aruco_ms:.1f}")
                     aruco_times.append(aruco_ms)
                     registered = []
                     for d in detections:
@@ -274,7 +357,8 @@ def main():
                         t0 = time.perf_counter()
                         open_close_detections = open_close_detector.detect(frame)
                         yolo_ms = (time.perf_counter() - t0) * 1000
-                        print(f"[{time.strftime('%H:%M:%S')}] LATENCY yolo_ms={yolo_ms:.1f}")
+                        if VERBOSE_LATENCY_LOGS:
+                            print(f"[{time.strftime('%H:%M:%S')}] LATENCY yolo_ms={yolo_ms:.1f}")
                         yolo_times.append(yolo_ms)
                         if open_close_detections:
                             best = max(open_close_detections, key=lambda d: d["confidence"])
@@ -336,12 +420,30 @@ def main():
             if elapsed >= STATS_INTERVAL:
                 fps = frames_captured / elapsed
                 cpu_now, rss_mb = proc_stats()
+                system_idle_now, system_total_now = system_cpu_times()
+                mem_available_mb, mem_used_pct, cpu_temp_c, throttled_hex = system_stats()
                 if cpu_now is not None and stats_cpu_start is not None:
                     cpu_pct = 100 * (cpu_now - stats_cpu_start) / elapsed
                     cpu_str = f"{cpu_pct:.1f}%"
                 else:
+                    cpu_pct = None
                     cpu_str = "n/a"
+                if (
+                    system_idle_now is not None
+                    and system_idle_start is not None
+                    and system_total_now - system_total_start > 0
+                ):
+                    system_cpu_pct = 100 * (
+                        1 - (system_idle_now - system_idle_start) / (system_total_now - system_total_start)
+                    )
+                    system_cpu_str = f"{system_cpu_pct:.1f}%"
+                else:
+                    system_cpu_pct = None
+                    system_cpu_str = "n/a"
                 rss_str = f"{rss_mb:.1f}MB" if rss_mb is not None else "n/a"
+                mem_avail_str = f"{mem_available_mb:.0f}MB" if mem_available_mb is not None else "n/a"
+                mem_used_str = f"{mem_used_pct:.1f}%" if mem_used_pct is not None else "n/a"
+                temp_str = f"{cpu_temp_c:.1f}C" if cpu_temp_c is not None else "n/a"
 
                 def _latency_str(times):
                     if not times:
@@ -351,15 +453,53 @@ def main():
                         f"min={min(times):.1f}ms max={max(times):.1f}ms"
                     )
 
+                def _latency_agg(times):
+                    if not times:
+                        return 0, None, None, None
+                    return len(times), sum(times) / len(times), min(times), max(times)
+
                 print(
                     f"[{time.strftime('%H:%M:%S')}] STATS window={elapsed:.1f}s fps={fps:.1f} "
-                    f"cpu={cpu_str} rss={rss_str} frames={frames_captured} "
-                    f"grab_fails={grab_fails} motion_skips={motion_skips} "
+                    f"cpu={cpu_str} system_cpu={system_cpu_str} rss={rss_str} "
+                    f"mem_available={mem_avail_str} mem_used={mem_used_str} "
+                    f"cpu_temp={temp_str} throttled={throttled_hex or 'n/a'} "
+                    f"frames={frames_captured} grab_fails={grab_fails} motion_skips={motion_skips} "
                     f"aruco({_latency_str(aruco_times)}) yolo({_latency_str(yolo_times)})"
                 )
 
+                aruco_calls, aruco_avg, aruco_min, aruco_max = _latency_agg(aruco_times)
+                yolo_calls, yolo_avg, yolo_min, yolo_max = _latency_agg(yolo_times)
+                stats_csv.writerow(
+                    [
+                        time.strftime("%Y-%m-%d %H:%M:%S"),
+                        f"{elapsed:.1f}",
+                        f"{fps:.1f}",
+                        f"{cpu_pct:.1f}" if cpu_pct is not None else "",
+                        f"{system_cpu_pct:.1f}" if system_cpu_pct is not None else "",
+                        f"{rss_mb:.1f}" if rss_mb is not None else "",
+                        f"{mem_available_mb:.0f}" if mem_available_mb is not None else "",
+                        f"{mem_used_pct:.1f}" if mem_used_pct is not None else "",
+                        f"{cpu_temp_c:.1f}" if cpu_temp_c is not None else "",
+                        throttled_hex or "",
+                        frames_captured,
+                        grab_fails,
+                        motion_skips,
+                        aruco_calls,
+                        f"{aruco_avg:.1f}" if aruco_avg is not None else "",
+                        f"{aruco_min:.1f}" if aruco_min is not None else "",
+                        f"{aruco_max:.1f}" if aruco_max is not None else "",
+                        yolo_calls,
+                        f"{yolo_avg:.1f}" if yolo_avg is not None else "",
+                        f"{yolo_min:.1f}" if yolo_min is not None else "",
+                        f"{yolo_max:.1f}" if yolo_max is not None else "",
+                    ]
+                )
+                stats_log_file.flush()
+                os.fsync(stats_log_file.fileno())
+
                 stats_window_start = now
                 stats_cpu_start = cpu_now
+                system_idle_start, system_total_start = system_idle_now, system_total_now
                 frames_captured = 0
                 grab_fails = 0
                 motion_skips = 0
@@ -373,6 +513,8 @@ def main():
             cv2.destroyAllWindows()
         if streamer is not None:
             streamer.stop()
+        if stats_log_file is not None:
+            stats_log_file.close()
 
 
 if __name__ == "__main__":

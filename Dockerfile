@@ -13,10 +13,7 @@ WORKDIR /app
 
 COPY requirements.txt .
 
-# CPU-only torch/torchvision wheels — the default PyPI wheels pull in CUDA
-# libraries that are useless on a Pi and add ~2GB+ to the image.
-RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 

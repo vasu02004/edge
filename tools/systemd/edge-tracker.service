@@ -1,0 +1,19 @@
+[Unit]
+Description=Edge vault tracker (ArUco + open/close detection)
+After=network.target
+
+[Service]
+Type=simple
+# Adjust User and WorkingDirectory to match your actual Pi user/repo path.
+User=pi
+WorkingDirectory=/home/pi/edge
+ExecStart=/usr/bin/python3 main.py --stream
+Restart=always
+RestartSec=5
+# Needed for camera device access on most Pi OS setups.
+SupplementaryGroups=video
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
