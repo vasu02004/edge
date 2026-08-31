@@ -1,7 +1,7 @@
 """Summarize a stats.csv produced by main.py's periodic STATS logging: avg/peak/min
-for CPU%, RAM (RSS), fps, and latency over the full run, plus an hourly RSS trend
-to catch slow growth a single avg/peak/min summary would hide, and a check for
-any Pi thermal-throttle events during the run.
+for CPU%, RAM (RSS), temp, fps, and latency over the full run, plus hourly RSS,
+CPU%, and temp trends to catch slow growth or drift a single avg/peak/min summary
+would hide, and a check for any Pi thermal-throttle events during the run.
 
 Run with: python tools/analyze_stats.py [path/to/stats.csv]
 """
@@ -15,6 +15,26 @@ def to_float(s):
     return float(s) if s else None
 
 
+def hourly_trend(label, rows, start, field, unit):
+    print(f"\nHourly {label} trend (catches slow growth an overall avg/peak/min would hide):")
+    hourly = defaultdict(list)
+    for r in rows:
+        ts = datetime.strptime(r["timestamp"], "%Y-%m-%d %H:%M:%S")
+        hour_bucket = int((ts - start).total_seconds() // 3600)
+        val = to_float(r[field])
+        if val is not None:
+            hourly[hour_bucket].append(val)
+    if not hourly:
+        print("  no data")
+        return
+    for h in sorted(hourly):
+        vals = hourly[h]
+        print(
+            f"  hour {h:3d}: avg={sum(vals) / len(vals):7.1f}{unit}  "
+            f"peak={max(vals):7.1f}{unit}  best={min(vals):7.1f}{unit}"
+        )
+
+
 def summarize(label, values):
     values = [v for v in values if v is not None]
     if not values:
@@ -22,7 +42,7 @@ def summarize(label, values):
         return
     print(
         f"  {label:20s} avg={sum(values) / len(values):8.1f}  "
-        f"peak={max(values):8.1f}  best={min(values):8.1f}  n={len(values)}"
+        f"peak={max(values):8.1f}  best={min(values):8.1f}"
     )
 
 
@@ -73,17 +93,9 @@ def main():
     else:
         print("\n  No throttling detected (throttled_hex was 0x0 or n/a throughout).")
 
-    print("\nHourly RSS trend (catches slow growth an overall avg/peak/min would hide):")
-    hourly = defaultdict(list)
-    for r in rows:
-        ts = datetime.strptime(r["timestamp"], "%Y-%m-%d %H:%M:%S")
-        hour_bucket = int((ts - start).total_seconds() // 3600)
-        rss = to_float(r["rss_mb"])
-        if rss is not None:
-            hourly[hour_bucket].append(rss)
-    for h in sorted(hourly):
-        vals = hourly[h]
-        print(f"  hour {h:3d}: avg={sum(vals) / len(vals):7.1f}MB  peak={max(vals):7.1f}MB  n={len(vals)}")
+    hourly_trend("RSS", rows, start, "rss_mb", "MB")
+    hourly_trend("CPU% (process)", rows, start, "cpu_pct", "%")
+    hourly_trend("Temp", rows, start, "cpu_temp_c", "C")
 
 
 if __name__ == "__main__":
