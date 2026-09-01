@@ -107,9 +107,10 @@ from aurus_guard.client import AurusGuardClient
 from detection.aruco_detector import ArucoDetector
 from detection.open_close_detector import OpenCloseDetector
 from detection.zones import ZoneChecker
+from mqtt.event_publisher import EventPublisher
 from registry.tray_registry import TrayRegistry
 from state_machine.rules import check_wrong_tray
-from state_machine.tray_state import TRAY_PICKED, TrayStateMachine
+from state_machine.tray_state import IDLE, TRAY_ON_TABLE, TRAY_PICKED, TrayStateMachine
 from streaming.mjpeg_server import MJPEGStreamer
 
 RED = "\033[91m"
@@ -238,6 +239,7 @@ def main():
     print(f"Loaded zone config for {zones.branch_id}")
     tray_state_machine = TrayStateMachine()
     aurus_guard_client = AurusGuardClient()
+    event_publisher = EventPublisher()
 
     streamer = None
     if args.display:
@@ -351,6 +353,12 @@ def main():
                         d["within_boundary"] = within_boundary
                         if last_within_boundary.get(label, True) and not within_boundary:
                             print(f"[{time.strftime('%H:%M:%S')}] EVENT_CROSSED_BOUNDARY tray={label}")
+                            event_publisher.publish(
+                                "EVENT_CROSSED_BOUNDARY",
+                                tray_label=label,
+                                vault_number=registry.vault_number,
+                                shelf_number=registry.shelf_number_for(label),
+                            )
                         last_within_boundary[label] = within_boundary
 
                     if frame_count % YOLO_FRAME_INTERVAL == 0:
@@ -371,33 +379,131 @@ def main():
                                     f"[{time.strftime('%H:%M:%S')}] OPEN_CLOSE_DETECTION "
                                     f"label={best['label']} confidence={best['confidence']:.0%} box={best['box']}"
                                 )
+                                event_publisher.publish(
+                                    "OPEN_CLOSE_DETECTION",
+                                    vault_number=registry.vault_number,
+                                    label=best["label"],
+                                    confidence=best["confidence"],
+                                    box=best["box"],
+                                )
                             else:
                                 print(f"[{time.strftime('%H:%M:%S')}] OPEN_CLOSE_DETECTION label=none")
+                                event_publisher.publish(
+                                    "OPEN_CLOSE_DETECTION",
+                                    vault_number=registry.vault_number,
+                                    label=None,
+                                )
                             last_open_close_label = current_open_close_label
 
                     visible_this_frame = {d["tray_label"]: d["zone"] for d in registered}
 
                     for label, old_state, new_state in tray_state_machine.update(visible_this_frame):
                         print(f"[{time.strftime('%H:%M:%S')}] STATE_TRANSITION tray={label} {old_state} -> {new_state}")
+                        event_publisher.publish(
+                            "STATE_TRANSITION",
+                            tray_label=label,
+                            vault_number=registry.vault_number,
+                            shelf_number=registry.shelf_number_for(label),
+                            old_state=old_state,
+                            new_state=new_state,
+                        )
 
                         if new_state == TRAY_PICKED:
                             event, details = check_wrong_tray(label, aurus_guard_client, registry)
+                            shelf_number = registry.shelf_number_for(label)
                             if event == "WRONG_TRAY":
                                 print(
                                     f"{RED}[{time.strftime('%H:%M:%S')}] ALERT_WRONG_TRAY "
                                     f"picked={details['picked']} expected={details['expected']}{RESET}"
                                 )
+                                event_publisher.publish(
+                                    "ALERT_WRONG_TRAY",
+                                    tray_label=label,
+                                    vault_number=registry.vault_number,
+                                    shelf_number=shelf_number,
+                                    picked=details["picked"],
+                                    expected=details["expected"],
+                                )
                             elif event == "NO_ACTIVE_ASSIGNMENT":
                                 print(
                                     f"[{time.strftime('%H:%M:%S')}] NOTICE_NO_ACTIVE_ASSIGNMENT picked={details['picked']}"
+                                )
+                                event_publisher.publish(
+                                    "NOTICE_NO_ACTIVE_ASSIGNMENT",
+                                    tray_label=label,
+                                    vault_number=registry.vault_number,
+                                    shelf_number=shelf_number,
+                                    picked=details["picked"],
                                 )
                             elif event == "ASSIGNMENT_LOOKUP_FAILED":
                                 print(
                                     f"[{time.strftime('%H:%M:%S')}] WARNING_ASSIGNMENT_LOOKUP_FAILED "
                                     f"picked={details['picked']} reason={details['reason']}"
                                 )
+                                event_publisher.publish(
+                                    "WARNING_ASSIGNMENT_LOOKUP_FAILED",
+                                    tray_label=label,
+                                    vault_number=registry.vault_number,
+                                    shelf_number=shelf_number,
+                                    picked=details["picked"],
+                                    reason=details["reason"],
+                                )
                             else:
                                 print(f"[{time.strftime('%H:%M:%S')}] CORRECT_TRAY_PICKED picked={details['picked']}")
+                                event_publisher.publish(
+                                    "CORRECT_TRAY_PICKED",
+                                    tray_label=label,
+                                    vault_number=registry.vault_number,
+                                    shelf_number=shelf_number,
+                                    picked=details["picked"],
+                                )
+
+                        elif old_state == IDLE and new_state == TRAY_ON_TABLE:
+                            # Tray's first-ever sighting was already on the table — we
+                            # never witnessed a pickup, so there's no "picked vs
+                            # expected" comparison to make. But we can still ask
+                            # aurus-guard whether anything is actually authorized right
+                            # now; if not, a tray sitting outside the vault with zero
+                            # authorization is alert-worthy regardless of whether the
+                            # camera caught the pickup moment.
+                            event, details = check_wrong_tray(label, aurus_guard_client, registry)
+                            shelf_number = registry.shelf_number_for(label)
+                            if event in ("WRONG_TRAY", "NO_ACTIVE_ASSIGNMENT"):
+                                print(
+                                    f"{RED}[{time.strftime('%H:%M:%S')}] ALERT_UNAUTHORIZED_TRAY_MOVEMENT "
+                                    f"tray={label} reason={event}{RESET}"
+                                )
+                                event_publisher.publish(
+                                    "ALERT_UNAUTHORIZED_TRAY_MOVEMENT",
+                                    tray_label=label,
+                                    vault_number=registry.vault_number,
+                                    shelf_number=shelf_number,
+                                    reason=event,
+                                )
+                            elif event == "ASSIGNMENT_LOOKUP_FAILED":
+                                print(
+                                    f"[{time.strftime('%H:%M:%S')}] WARNING_ASSIGNMENT_LOOKUP_FAILED "
+                                    f"picked={details['picked']} reason={details['reason']}"
+                                )
+                                event_publisher.publish(
+                                    "WARNING_ASSIGNMENT_LOOKUP_FAILED",
+                                    tray_label=label,
+                                    vault_number=registry.vault_number,
+                                    shelf_number=shelf_number,
+                                    picked=details["picked"],
+                                    reason=details["reason"],
+                                )
+                            else:
+                                print(
+                                    f"[{time.strftime('%H:%M:%S')}] NOTICE_TRAY_ON_TABLE_WITHOUT_OBSERVED_PICKUP "
+                                    f"tray={label}"
+                                )
+                                event_publisher.publish(
+                                    "NOTICE_TRAY_ON_TABLE_WITHOUT_OBSERVED_PICKUP",
+                                    tray_label=label,
+                                    vault_number=registry.vault_number,
+                                    shelf_number=shelf_number,
+                                )
 
                     for d in registered:
                         d["state"] = tray_state_machine.state_for(d["tray_label"])
@@ -515,6 +621,7 @@ def main():
             streamer.stop()
         if stats_log_file is not None:
             stats_log_file.close()
+        event_publisher.close()
 
 
 if __name__ == "__main__":
