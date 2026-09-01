@@ -43,3 +43,16 @@ STATS_LOG_PATH = os.getenv("STATS_LOG_PATH", "stats.csv")
 # the last one — trays sit still between pick/place events, so most cycles on a
 # fixed vault camera are otherwise wasted work.
 MOTION_GATING_ENABLED = os.getenv("MOTION_GATING_ENABLED", "false").lower() == "true"
+
+# MQTT event publishing
+# Left blank = publishing disabled (EventPublisher no-ops), so this stays optional
+# until configured.
+MQTT_BROKER_URL = os.getenv("MQTT_BROKER_URL", "")
+MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
+MQTT_EVENTS_TOPIC = os.getenv("MQTT_EVENTS_TOPIC", "vault/events")
+
+# Google Chat webhook for human-reviewer notifications (validation phase: every
+# event notifies, not just alerts — reviewers cross-check each one against CCTV
+# footage). Blank = disabled.
+GOOGLE_CHAT_WEBHOOK_URL = os.getenv("GOOGLE_CHAT_WEBHOOK_URL", "")

@@ -3,3 +3,4 @@ numpy
 ncnn
 requests
 python-dotenv
+paho-mqtt

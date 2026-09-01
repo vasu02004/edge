@@ -17,6 +17,12 @@ class TrayStateMachine:
 
             if state == IDLE and zone == "TRANSIT":
                 new_state = TRAY_PICKED
+            elif state == IDLE and zone == "TABLE":
+                # First-ever sighting is already outside the vault (e.g. camera
+                # started, or a tray was placed before it came online) — without
+                # this, the tray silently stays IDLE forever and never reaches
+                # the wrong-tray/alert check at all.
+                new_state = TRAY_ON_TABLE
             elif state == TRAY_PICKED and zone == "TRANSIT":
                 new_state = TRAY_IN_TRANSIT
             elif state == TRAY_PICKED and zone == "TABLE":
