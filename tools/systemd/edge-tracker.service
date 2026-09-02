@@ -1,11 +1,18 @@
 [Unit]
-Description=Edge vault tracker (ArUco + open/close detection)
-After=network.target
+Description=Edge vault tracker (ArUco + open/close detection + camera recording/upload)
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 # Adjust User/WorkingDirectory/ExecStart if your user, repo path, or venv
 # path differ from this.
+#
+# This process now owns the camera device for both detection and recording
+# (see camera/ffmpeg_capture.py) -- nothing else should open the camera while
+# this runs. It also shells out to rclone to upload finished recordings, so
+# `rclone config` must have the DRIVE_REMOTE (default "gdrive:") set up for
+# whichever User this runs as (root's rclone config, not another user's).
 User=root
 WorkingDirectory=/root/edge
 ExecStart=/root/edge/venv/bin/python3 main.py --stream
