@@ -84,17 +84,24 @@ class EventPublisher:
 
     @staticmethod
     def _format_message(payload: dict) -> str:
+        # vault_number is constant across this branch's messages (not worth repeating),
+        # and shelf_number is redundant once tray_label is shown — both still travel in
+        # full in the MQTT JSON payload, this only trims the human-readable Chat text.
         location_bits = []
         if payload.get("tray_label"):
             location_bits.append(f"tray={payload['tray_label']}")
-        if payload.get("vault_number") is not None:
-            location_bits.append(f"vault={payload['vault_number']}")
-        if payload.get("shelf_number") is not None:
+        elif payload.get("shelf_number") is not None:
             location_bits.append(f"shelf={payload['shelf_number']}")
         location = " ".join(location_bits)
 
         skip = {"event_type", "branch_id", "vault_number", "shelf_number", "tray_label", "timestamp"}
-        detail_bits = " ".join(f"{k}={v}" for k, v in payload.items() if k not in skip)
+
+        def _fmt(key, value):
+            if key == "confidence" and isinstance(value, (int, float)):
+                return f"{value:.0%}"
+            return str(value)
+
+        detail_bits = " ".join(f"{k}={_fmt(k, v)}" for k, v in payload.items() if k not in skip)
 
         parts = [f"[{payload['event_type']}]", payload["branch_id"], location, detail_bits, f"@ {payload['timestamp']}"]
         return " ".join(p for p in parts if p)
