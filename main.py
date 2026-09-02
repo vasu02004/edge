@@ -167,6 +167,16 @@ def is_local_device(source):
     return not (isinstance(source, str) and source.startswith(("http://", "https://")))
 
 
+def to_v4l2_device_path(source):
+    """ffmpeg/v4l2-ctl need an actual device path (e.g. /dev/video0), but
+    CAMERA_SOURCE/--cam accepts a bare index (e.g. 0) since that's what cv2
+    takes directly. Only used on the recording path -- open_camera() still
+    gets the raw source, since cv2 handles a bare index itself."""
+    if isinstance(source, int):
+        return f"/dev/video{source}"
+    return source
+
+
 def is_active_hours(now):
     t = now.time()
     return ACTIVE_HOURS_START <= t <= ACTIVE_HOURS_END
@@ -720,12 +730,13 @@ def main():
 
                 session_end = datetime.datetime.combine(now.date(), ACTIVE_HOURS_END)
                 stop_at = time.monotonic() + (session_end - now).total_seconds()
+                device = to_v4l2_device_path(source)
                 print(
-                    f"Opening camera source: {source!r} (recording session, "
+                    f"Opening camera device: {device!r} (recording session, "
                     f"ends {session_end.strftime('%H:%M:%S')})"
                 )
                 cap = FfmpegDualOutputCapture(
-                    device=source,
+                    device=device,
                     recordings_dir=RECORDINGS_DIR,
                     width=RECORDING_WIDTH,
                     height=RECORDING_HEIGHT,
