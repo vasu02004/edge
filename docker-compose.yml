@@ -1,0 +1,18 @@
+services:
+  edge-tracker:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - /Users/shubham.kumar/Downloads/Camera_2026-08-19_11-47-40_clip_000.mp4:/data/input.mp4:ro
+      - ./models:/app/models
+    # --- Pi 4 Model B (2GB) resource envelope ---
+    cpus: "4"            # 4x Cortex-A72 cores
+    mem_limit: 1800m     # ~1.8GB usable after Pi OS/kernel overhead
+    memswap_limit: 1800m # same as mem_limit -> no swap, matches a Pi with zram/swap off
+    pids_limit: 200
+    # devices:
+    #   - /dev/video0:/dev/video0   # Linux hosts only, see notes below
+    restart: unless-stopped

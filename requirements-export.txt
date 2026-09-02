@@ -1,0 +1,10 @@
+# Dev-only deps for retraining/re-exporting the open/close model and for
+# validating the ncnn decoder against ultralytics (tools/export_ncnn.py,
+# tools/validate_ncnn_decoder.py). NOT needed at runtime and NOT installed in
+# the Docker image — the deployed detector calls ncnn directly (see
+# detection/open_close_detector.py) to avoid the ~350MB RSS cost of importing
+# torch/torchvision on the device.
+-r requirements.txt
+torch
+torchvision
+ultralytics

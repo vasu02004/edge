@@ -1,4 +1,6 @@
-opencv-contrib-python==5.0.0.93
-numpy>=2.1.0
-requests==2.32.5
-python-dotenv==1.2.1
+opencv-contrib-python
+numpy
+ncnn
+requests
+python-dotenv
+paho-mqtt
