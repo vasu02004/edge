@@ -311,15 +311,17 @@ def main():
             frame = cv2.resize(frame, (FRAME_WIDTH, FRAME_HEIGHT))
             frame_count += 1
             frames_captured += 1
+
+            unchanged = False
+            if MOTION_GATING_ENABLED:
+                score, motion_ref_frame = motion_score(motion_ref_frame, frame)
+                unchanged = (
+                    score is not None
+                    and score < MOTION_THRESHOLD
+                    and checks_since_full < MOTION_FORCE_RECHECK_EVERY
+                )
+
             if frame_count % ARUCO_FRAME_INTERVAL == 0:
-                unchanged = False
-                if MOTION_GATING_ENABLED:
-                    score, motion_ref_frame = motion_score(motion_ref_frame, frame)
-                    unchanged = (
-                        score is not None
-                        and score < MOTION_THRESHOLD
-                        and checks_since_full < MOTION_FORCE_RECHECK_EVERY
-                    )
                 if unchanged:
                     checks_since_full += 1
                     motion_skips += 1
