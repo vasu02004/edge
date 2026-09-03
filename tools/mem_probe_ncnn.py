@@ -1,5 +1,5 @@
-"""RSS probe for the raw-ncnn inference path (no torch/ultralytics), to compare
-against tools/mem_probe.py and quantify what dropping ultralytics would save.
+"""RSS probe for the raw-ncnn inference path (no torch/ultralytics), to
+quantify what dropping ultralytics saves.
 
 Run with: python tools/mem_probe_ncnn.py
 """
@@ -7,6 +7,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+_last = [0.0]
 
 
 def rss_mb():
@@ -17,11 +19,11 @@ def rss_mb():
     return None
 
 
-_last = [0.0]
-
-
 def checkpoint(label):
     now = rss_mb()
+    if now is None:
+        print(f"{label:45s} rss=n/a (not Linux/proc)")
+        return
     delta = now - _last[0]
     print(f"{label:45s} rss={now:8.1f}MB  (+{delta:.1f}MB)")
     _last[0] = now

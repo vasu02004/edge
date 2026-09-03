@@ -27,9 +27,6 @@ class TrayRegistry:
     def label_for(self, aruco_id: int):
         return self._id_to_label.get(aruco_id)
 
-    def aruco_id_for(self, tray_label: str):
-        return self._label_to_id.get(tray_label)
-
     def label_for_location(self, vault_number: int, shelf_number: int):
         if self.vault_number is not None and int(vault_number) != self.vault_number:
             return None
@@ -37,9 +34,6 @@ class TrayRegistry:
 
     def shelf_number_for(self, tray_label: str):
         return self._label_to_shelf.get(tray_label)
-
-    def is_registered(self, aruco_id: int) -> bool:
-        return aruco_id in self._id_to_label
 
     def registered_labels(self):
         return sorted(self._label_to_id)

@@ -1,3 +1,4 @@
+import collections
 import logging
 import os
 import subprocess
@@ -6,6 +7,8 @@ import time
 
 import cv2
 import numpy as np
+
+from camera.jpeg_stream import JpegFrameSplitter
 
 log = logging.getLogger("camera.ffmpeg_capture")
 
@@ -98,7 +101,8 @@ class FfmpegDualOutputCapture:
         self._bitrate = bitrate
         self._camera_controls = camera_controls or {}
         self._proc = None
-        self._buffer = b""
+        self._splitter = JpegFrameSplitter()
+        self._pending = collections.deque()
 
     def open(self):
         os.makedirs(self._recordings_dir, exist_ok=True)
@@ -132,28 +136,22 @@ class FfmpegDualOutputCapture:
         ]
         log.info("Starting ffmpeg (recording + detection feed)")
         self._proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        self._buffer = b""
-
-    def isOpened(self):
-        return self._proc is not None and self._proc.poll() is None
+        self._splitter = JpegFrameSplitter()
+        self._pending = collections.deque()
 
     def read(self):
         if self._proc is None:
             return False, None
         while True:
-            start = self._buffer.find(b"\xff\xd8")
-            end = self._buffer.find(b"\xff\xd9", start + 2) if start != -1 else -1
-            if start != -1 and end != -1:
-                jpg = self._buffer[start:end + 2]
-                self._buffer = self._buffer[end + 2:]
+            while self._pending:
+                jpg = self._pending.popleft()
                 frame = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
                 if frame is not None:
                     return True, frame
-                continue
             chunk = self._proc.stdout.read(4096)
             if not chunk:
                 return False, None
-            self._buffer += chunk
+            self._pending.extend(self._splitter.feed(chunk))
 
     def release(self):
         if self._proc is None:

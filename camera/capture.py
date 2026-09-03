@@ -1,8 +1,10 @@
+import collections
 import urllib.request
 
 import cv2
 import numpy as np
 
+from camera.jpeg_stream import JpegFrameSplitter
 from config import CAMERA_SOURCE, FRAME_HEIGHT, FRAME_WIDTH
 
 
@@ -21,7 +23,8 @@ def _candidate_urls(url: str) -> list:
 class MjpegHttpStream:
     def __init__(self, url: str, timeout: float = 5.0):
         self._stream = None
-        self._buffer = b""
+        self._splitter = JpegFrameSplitter()
+        self._pending = collections.deque()
         last_error = None
         for candidate in _candidate_urls(url):
             try:
@@ -40,19 +43,15 @@ class MjpegHttpStream:
     def read(self):
         try:
             while True:
-                start = self._buffer.find(b"\xff\xd8")
-                end = self._buffer.find(b"\xff\xd9", start + 2) if start != -1 else -1
-                if start != -1 and end != -1:
-                    jpg = self._buffer[start : end + 2]
-                    self._buffer = self._buffer[end + 2 :]
+                while self._pending:
+                    jpg = self._pending.popleft()
                     frame = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
                     if frame is not None:
                         return True, frame
-                    continue
                 chunk = self._stream.read(4096)
                 if not chunk:
                     return False, None
-                self._buffer += chunk
+                self._pending.extend(self._splitter.feed(chunk))
         except Exception:
             return False, None
 

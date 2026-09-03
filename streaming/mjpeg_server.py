@@ -3,6 +3,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import cv2
 
+from streaming.mjpeg_writer import start_mjpeg_response, write_mjpeg_frame
+
 BOUNDARY = "frame"
 
 
@@ -16,14 +18,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        self.send_response(200)
-        self.send_header("Age", "0")
-        self.send_header("Cache-Control", "no-cache, private")
-        self.send_header("Pragma", "no-cache")
-        self.send_header(
-            "Content-Type", f"multipart/x-mixed-replace; boundary={BOUNDARY}"
-        )
-        self.end_headers()
+        start_mjpeg_response(self, BOUNDARY)
 
         streamer = self.server.streamer
         last_frame_id = 0
@@ -32,11 +27,7 @@ class _Handler(BaseHTTPRequestHandler):
                 jpeg, last_frame_id = streamer.wait_for_frame(last_frame_id)
                 if jpeg is None:
                     break
-                self.wfile.write(f"--{BOUNDARY}\r\n".encode())
-                self.wfile.write(b"Content-Type: image/jpeg\r\n")
-                self.wfile.write(f"Content-Length: {len(jpeg)}\r\n\r\n".encode())
-                self.wfile.write(jpeg)
-                self.wfile.write(b"\r\n")
+                write_mjpeg_frame(self.wfile, jpeg, BOUNDARY)
         except (BrokenPipeError, ConnectionResetError):
             pass
 
