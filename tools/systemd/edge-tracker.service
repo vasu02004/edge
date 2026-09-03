@@ -1,21 +1,26 @@
 [Unit]
-Description=Edge vault tracker (ArUco + open/close detection + camera recording/upload)
+Description=Edge vault tracker (ArUco + open/close detection + camera recording/upload) and scale MQTT bridge
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-# Adjust User/WorkingDirectory/ExecStart if your user, repo path, or venv
-# path differ from this.
+# Adjust User/WorkingDirectory if your user or repo path differ from this.
+# This is a template — scripts/script.sh generates the actual deployed unit
+# with the real PROJECT_DIR substituted in; keep the two in sync.
 #
-# This process now owns the camera device for both detection and recording
-# (see camera/ffmpeg_capture.py) -- nothing else should open the camera while
-# this runs. It also shells out to rclone to upload finished recordings, so
-# `rclone config` must have the DRIVE_REMOTE (default "gdrive:") set up for
-# whichever User this runs as (root's rclone config, not another user's).
+# ExecStart runs scripts/run_services.sh, which starts main.py and bridge.py
+# as sibling processes (not merged code) so one systemd unit supervises both:
+# if either dies, both are restarted together. main.py now owns the camera
+# device for both detection and recording (see camera/ffmpeg_capture.py) --
+# nothing else should open the camera while this runs. It also shells out to
+# rclone to upload finished recordings, so `rclone config` must have the
+# DRIVE_REMOTE (default "gdrive:") set up for whichever User this runs as
+# (root's rclone config, not another user's). bridge.py separately owns the
+# scale's serial port.
 User=root
 WorkingDirectory=/root/edge
-ExecStart=/root/edge/venv/bin/python3 main.py --stream
+ExecStart=/root/edge/scripts/run_services.sh
 Restart=always
 RestartSec=5
 StandardOutput=journal

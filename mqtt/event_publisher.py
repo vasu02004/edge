@@ -1,10 +1,10 @@
 import json
 import time
-from urllib.parse import urlparse
 
 import paho.mqtt.client as mqtt
 
 from config import BRANCH_ID, MQTT_BROKER_URL, MQTT_EVENTS_TOPIC, MQTT_PASSWORD, MQTT_USERNAME
+from mqtt.client import build_client
 from notify.google_chat import GoogleChatNotifier
 
 
@@ -12,7 +12,7 @@ class EventPublisher:
     """Publishes detection events (state transitions, open/close, alerts) to a flat
     MQTT topic — vault/events — with full identity (branch/vault/shelf) carried in
     the JSON payload rather than the topic path, since unlike aurusguard-pi's
-    bridge.js (an addressed request/response), we're pushing telemetry with no
+    bridge.py (an addressed request/response), we're pushing telemetry with no
     incoming request to route against. Also fans each event out to Google Chat
     (via GoogleChatNotifier) so a human reviewer gets notified — during this
     validation phase that's every event, not just alerts, since reviewers
@@ -35,18 +35,13 @@ class EventPublisher:
             print("EventPublisher: MQTT_BROKER_URL not set, MQTT publishing disabled")
             return
 
-        parsed = urlparse(broker_url)
-        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-        if username:
-            self.client.username_pw_set(username, password)
-        if parsed.scheme == "mqtts":
-            self.client.tls_set()
+        self.client, hostname, port = build_client(broker_url, username, password, default_port=8883)
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
         self.client.reconnect_delay_set(min_delay=1, max_delay=30)
 
         try:
-            self.client.connect_async(parsed.hostname, parsed.port or 8883, keepalive=60)
+            self.client.connect_async(hostname, port, keepalive=60)
             self.client.loop_start()
         except Exception as e:
             print(f"EventPublisher: connection setup failed: {e}")

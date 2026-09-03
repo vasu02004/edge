@@ -1,0 +1,8 @@
+# Standalone deps for bridge.py (the scale MQTT bridge, run as its own
+# systemd service — see scripts/script.sh). Deliberately excludes
+# requirements.txt's CV stack (opencv, ncnn, numpy), which bridge.py never
+# imports and which would be dead weight on a service that just talks to a
+# serial scale and an MQTT broker.
+python-dotenv
+paho-mqtt
+pyserial

@@ -58,6 +58,12 @@ MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
 MQTT_EVENTS_TOPIC = os.getenv("MQTT_EVENTS_TOPIC", "vault/events")
 
+# Scale MQTT bridge (bridge.py) — same broker/creds above, plus its own serial link
+# to the weighing indicator. Runs as a separate process from main.py but shares
+# this config module so both read identical values from one place.
+SERIAL_PORT_PATH = os.getenv("SERIAL_PORT_PATH", "/dev/ttyUSB0")
+BAUDRATE = int(os.getenv("BAUDRATE", "9600"))
+
 # Google Chat webhook for human-reviewer notifications (validation phase: every
 # event notifies, not just alerts — reviewers cross-check each one against CCTV
 # footage). Blank = disabled.
