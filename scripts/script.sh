@@ -1,18 +1,64 @@
 #!/bin/bash
 
-# install.sh
-# Run this script as root, from a cloned copy of this repo, to take a fresh
-# Pi from a clone to a running edge-tracker service: installs apt/system deps,
-# creates a venv with both main.py's and bridge.py's requirements, installs the
-# edge-tracker systemd service (main.py + bridge.py together, see
-# scripts/run_services.sh), and sets up log retention/cleanup.
+# script.sh
+#
+# Two modes:
+#   ./script.sh          (no args) — run as root, once, from a cloned copy of
+#                         this repo, to take a fresh Pi from a clone to a
+#                         running edge-tracker service: installs apt/system
+#                         deps, creates a venv with both main.py's and
+#                         bridge.py's requirements, installs the edge-tracker
+#                         systemd service, and sets up log retention/cleanup.
+#   ./script.sh run      — the systemd ExecStart target, invoked on every
+#                         service start/restart: runs main.py (camera +
+#                         detection) and bridge.py (scale MQTT bridge) as
+#                         sibling processes, without merging their code. If
+#                         either dies, both are torn down so systemd's
+#                         Restart=always brings the pair back up together.
+#                         Not meant to be run by hand.
 
-set -euo pipefail
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+
+# ============================================================
+# RUN MODE — the actual service entrypoint (kept minimal and
+# fast: this runs on every restart, not just once at install).
+# ============================================================
+if [ "${1:-}" = "run" ]; then
+  PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+  PYTHON="$PROJECT_DIR/venv/bin/python3"
+
+  cd "$PROJECT_DIR"
+
+  "$PYTHON" main.py --stream &
+  MAIN_PID=$!
+
+  "$PYTHON" bridge.py &
+  BRIDGE_PID=$!
+
+  cleanup() {
+    kill "$MAIN_PID" "$BRIDGE_PID" 2>/dev/null
+    wait "$MAIN_PID" "$BRIDGE_PID" 2>/dev/null
+  }
+  trap cleanup TERM INT
+
+  # Whichever process exits first, tear down the other and exit non-zero so
+  # systemd restarts the whole unit (both processes together).
+  wait -n
+  EXIT_CODE=$?
+  cleanup
+  exit "$EXIT_CODE"
+fi
+
+# ============================================================
+# INSTALL MODE — one-time setup, run by hand as root.
+# ============================================================
+set -e
 
 SERVICE_NAME="edge-tracker"
 
 # Determine project directory: rely on script location first
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 if [ -f "$SCRIPT_DIR/main.py" ]; then
   PROJECT_DIR="$SCRIPT_DIR"
 elif [ -f "$(dirname "$SCRIPT_DIR")/main.py" ]; then
@@ -50,7 +96,7 @@ echo "Installation started: $(date)"
 echo "========================================="
 
 if [[ "$EUID" -ne 0 ]]; then
-  echo "This script must be run as root. Use sudo ./install.sh"
+  echo "This script must be run as root. Use sudo ./script.sh"
   exit 1
 fi
 
@@ -77,8 +123,8 @@ venv/bin/pip install --no-cache-dir --upgrade pip
 venv/bin/pip install --no-cache-dir -r requirements.txt
 venv/bin/pip install --no-cache-dir -r requirements-bridge.txt
 
-echo "[4/9] Making run_services.sh executable..."
-chmod +x "$PROJECT_DIR/scripts/run_services.sh"
+echo "[4/9] Making script.sh executable..."
+chmod +x "$PROJECT_DIR/scripts/script.sh"
 
 echo "[5/9] Creating systemd service..."
 cat >/etc/systemd/system/${SERVICE_NAME}.service <<EOF
@@ -96,11 +142,19 @@ Type=simple
 # rclone config here, since User=root below).
 User=root
 WorkingDirectory=$PROJECT_DIR
-ExecStart=$PROJECT_DIR/scripts/run_services.sh
+ExecStart=$PROJECT_DIR/scripts/script.sh run
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
+
+# Same Pi 4 (2GB) resource envelope as docker-compose.yml's cpus/mem_limit/
+# pids_limit -- this native deployment has no Docker cgroup to enforce it
+# otherwise, so a leak or runaway in either process is otherwise unbounded.
+CPUQuota=400%
+MemoryMax=1800M
+MemorySwapMax=0
+TasksMax=200
 
 [Install]
 WantedBy=multi-user.target

@@ -1,5 +1,6 @@
 import json
 import threading
+import time
 from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
@@ -8,6 +9,11 @@ import serial
 from config import BAUDRATE, BRANCH_ID, MQTT_BROKER_URL, MQTT_PASSWORD, MQTT_USERNAME, SERIAL_PORT_PATH
 from logging_utils import log
 from mqtt.client import build_client
+
+# A frame not seen in this long counts the scale as offline even if the serial
+# port itself never raised an error (e.g. the indicator hangs but the
+# USB-serial adapter stays enumerated).
+SCALE_STALE_AFTER_SECONDS = 5
 
 # =====================================
 # LOGGING
@@ -28,10 +34,29 @@ log("INFO", f"MQTT Broker: {MQTT_BROKER_URL}")
 # STATE
 # =====================================
 
+state_lock = threading.Lock()
+
 gross_weight = 0.0
 net_weight = 0.0
 tare_weight = 0.0
 is_scale_connected = False
+last_frame_time = 0.0
+
+
+def read_weights():
+    with state_lock:
+        return gross_weight, net_weight, tare_weight
+
+
+def scale_status():
+    with state_lock:
+        connected, last_seen = is_scale_connected, last_frame_time
+    if not connected:
+        return "SCALE_OFFLINE"
+    if time.monotonic() - last_seen > SCALE_STALE_AFTER_SECONDS:
+        return "SCALE_OFFLINE"
+    return "SUCCESS"
+
 
 # =====================================
 # SERIAL PORT SETUP
@@ -39,7 +64,7 @@ is_scale_connected = False
 
 port = None
 try:
-    port = serial.Serial(port=SERIAL_PORT_PATH, baudrate=BAUDRATE)
+    port = serial.Serial(port=SERIAL_PORT_PATH, baudrate=BAUDRATE, timeout=1)
 except serial.SerialException as err:
     is_scale_connected = False
     log("ERROR", f"Serial Error: {err}")
@@ -49,21 +74,27 @@ else:
 
 
 def serial_reader():
-    global gross_weight, net_weight, tare_weight, is_scale_connected
+    global gross_weight, net_weight, tare_weight, is_scale_connected, last_frame_time
 
     while True:
         try:
             line = port.readline()
         except serial.SerialException as err:
-            is_scale_connected = False
+            with state_lock:
+                is_scale_connected = False
             log("ERROR", f"Serial Error: {err}")
             break
 
         if not line:
+            # Just a read timeout (see SCALE_STALE_AFTER_SECONDS) with no data — loop
+            # so a scale that's gone quiet without a serial-level error still gets
+            # noticed as stale via scale_status(), instead of blocking here forever.
             continue
 
         try:
-            is_scale_connected = True
+            with state_lock:
+                is_scale_connected = True
+                last_frame_time = time.monotonic()
 
             raw_string = line.decode(errors="replace").strip()
 
@@ -78,16 +109,18 @@ def serial_reader():
                     except ValueError:
                         log("WARN", f"Unparseable frame fields: {raw_string}")
                     else:
-                        gross_weight = gross
-                        net_weight = net
-                        tare_weight = tare
+                        with state_lock:
+                            gross_weight = gross
+                            net_weight = net
+                            tare_weight = tare
                 else:
                     # Fallback: unexpected frame shape, log it so it can be investigated
                     log("WARN", f"Unexpected frame (expected 3 fields): {raw_string}")
         except Exception as err:
             log("ERROR", f"Scale Parse Error: {err}")
 
-    is_scale_connected = False
+    with state_lock:
+        is_scale_connected = False
     log("WARN", "Serial Port Closed")
 
 
@@ -159,19 +192,20 @@ def on_message(client, userdata, message):
 
         # ---------- READ ----------
         if payload.get("action") == "READ":
-            status = "SUCCESS" if is_scale_connected else "SCALE_OFFLINE"
+            gross, net, tare = read_weights()
+            status = scale_status()
 
             log(
                 "INFO",
-                f"Weight Request | ReqID={payload.get('reqId')} | Gross={gross_weight} | "
-                f"Net={net_weight} | Tare={tare_weight} | Status={status}",
+                f"Weight Request | ReqID={payload.get('reqId')} | Gross={gross} | "
+                f"Net={net} | Tare={tare} | Status={status}",
             )
 
             response = {
                 "reqId": payload.get("reqId"),
-                "weight": net_weight,
-                "grossWeight": gross_weight,
-                "tareWeight": tare_weight,
+                "weight": net,
+                "grossWeight": gross,
+                "tareWeight": tare,
                 "status": status,
                 "timestamp": iso_timestamp(),
             }
@@ -199,13 +233,15 @@ def on_message(client, userdata, message):
             else:
                 log("INFO", f"Tare Command Sent to Scale | ReqID={payload.get('reqId')}")
 
+            gross, net, tare = read_weights()
+
             response = {
                 "reqId": payload.get("reqId"),
                 "action": "TARE",
-                "grossWeight": gross_weight,
-                "tareWeight": tare_weight,
-                "weight": net_weight,
-                "status": "SUCCESS" if is_scale_connected else "SCALE_OFFLINE",
+                "grossWeight": gross,
+                "tareWeight": tare,
+                "weight": net,
+                "status": scale_status(),
                 "note": "Tare command sent to scale; reflects on next frame if supported by indicator firmware.",
                 "timestamp": iso_timestamp(),
             }
@@ -238,10 +274,11 @@ client.on_log = on_log
 
 
 def health_log():
+    gross, net, tare = read_weights()
     log(
         "HEALTH",
-        f"Gross={gross_weight} | Net={net_weight} | Tare={tare_weight} | "
-        f"Scale={'CONNECTED' if is_scale_connected else 'DISCONNECTED'}",
+        f"Gross={gross} | Net={net} | Tare={tare} | "
+        f"Scale={'CONNECTED' if scale_status() == 'SUCCESS' else 'DISCONNECTED'}",
     )
     threading.Timer(300, health_log).start()
 

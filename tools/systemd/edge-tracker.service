@@ -9,22 +9,31 @@ Type=simple
 # This is a template — scripts/script.sh generates the actual deployed unit
 # with the real PROJECT_DIR substituted in; keep the two in sync.
 #
-# ExecStart runs scripts/run_services.sh, which starts main.py and bridge.py
+# ExecStart runs `scripts/script.sh run`, which starts main.py and bridge.py
 # as sibling processes (not merged code) so one systemd unit supervises both:
-# if either dies, both are restarted together. main.py now owns the camera
-# device for both detection and recording (see camera/ffmpeg_capture.py) --
-# nothing else should open the camera while this runs. It also shells out to
-# rclone to upload finished recordings, so `rclone config` must have the
-# DRIVE_REMOTE (default "gdrive:") set up for whichever User this runs as
-# (root's rclone config, not another user's). bridge.py separately owns the
-# scale's serial port.
+# if either dies, both are restarted together. (`scripts/script.sh` with no
+# args is the separate, one-time-by-hand install mode -- see the script's
+# header comment.) main.py now owns the camera device for both detection and
+# recording (see camera/ffmpeg_capture.py) -- nothing else should open the
+# camera while this runs. It also shells out to rclone to upload finished
+# recordings, so `rclone config` must have the DRIVE_REMOTE (default
+# "gdrive:") set up for whichever User this runs as (root's rclone config,
+# not another user's). bridge.py separately owns the scale's serial port.
 User=root
 WorkingDirectory=/root/edge
-ExecStart=/root/edge/scripts/run_services.sh
+ExecStart=/root/edge/scripts/script.sh run
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
+
+# Same Pi 4 (2GB) resource envelope as docker-compose.yml's cpus/mem_limit/
+# pids_limit -- this native deployment has no Docker cgroup to enforce it
+# otherwise, so a leak or runaway in either process is otherwise unbounded.
+CPUQuota=400%
+MemoryMax=1800M
+MemorySwapMax=0
+TasksMax=200
 
 [Install]
 WantedBy=multi-user.target
