@@ -1,4 +1,5 @@
 import json
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -14,6 +15,20 @@ from mqtt.client import build_client
 # port itself never raised an error (e.g. the indicator hangs but the
 # USB-serial adapter stays enumerated).
 SCALE_STALE_AFTER_SECONDS = 5
+
+# The Aczet CY 3102 streams continuously with NO \r/\n between readings -- each
+# frame is a mode letter (observed: 'N' for its Net mode), padding spaces, the
+# weight value, then a literal ESC + "enter." terminator, then a status byte
+# ('!' while the reading is still settling, ' ' once stable). E.g., captured
+# via `od -An -tx1z /dev/ttyUSB0`:
+#   4e 20...20 33 37 33 2e 30 35 1b 65 6e 74 65 72 2e 21
+#   N  <spaces>  3  7  3  .  0  5 ESC  e  n  t  e  r  .  !
+# There is no separate gross/tare channel over serial -- this is a single
+# continuously-updating reading, so gross_weight mirrors net_weight below and
+# tare_weight always stays 0.0 (the balance's own physical tare/zero offset
+# isn't visible to us, only its already-tared result).
+FRAME_RE = re.compile(rb"[A-Za-z]\s+([+-]?\d+(?:\.\d+)?)\x1benter\.[ !]")
+MAX_BUFFER = 256
 
 # =====================================
 # LOGGING
@@ -74,48 +89,50 @@ else:
 
 
 def serial_reader():
-    global gross_weight, net_weight, tare_weight, is_scale_connected, last_frame_time
+    global gross_weight, net_weight, is_scale_connected, last_frame_time
+
+    buffer = b""
 
     while True:
         try:
-            line = port.readline()
+            chunk = port.read(64)
         except serial.SerialException as err:
             with state_lock:
                 is_scale_connected = False
             log("ERROR", f"Serial Error: {err}")
             break
 
-        if not line:
+        if not chunk:
             # Just a read timeout (see SCALE_STALE_AFTER_SECONDS) with no data — loop
             # so a scale that's gone quiet without a serial-level error still gets
             # noticed as stale via scale_status(), instead of blocking here forever.
             continue
 
+        with state_lock:
+            is_scale_connected = True
+            last_frame_time = time.monotonic()
+
+        buffer += chunk
+
         try:
-            with state_lock:
-                is_scale_connected = True
-                last_frame_time = time.monotonic()
-
-            raw_string = line.decode(errors="replace").strip()
-
-            if raw_string:
-                fields = [f.strip() for f in raw_string.split("\r")]
-
-                if len(fields) >= 3:
-                    try:
-                        gross = float(fields[0])
-                        net = float(fields[1])
-                        tare = float(fields[2])
-                    except ValueError:
-                        log("WARN", f"Unparseable frame fields: {raw_string}")
-                    else:
-                        with state_lock:
-                            gross_weight = gross
-                            net_weight = net
-                            tare_weight = tare
+            match_end = 0
+            for match in FRAME_RE.finditer(buffer):
+                try:
+                    weight = float(match.group(1))
+                except ValueError:
+                    log("WARN", f"Unparseable weight value: {match.group(1)!r}")
                 else:
-                    # Fallback: unexpected frame shape, log it so it can be investigated
-                    log("WARN", f"Unexpected frame (expected 3 fields): {raw_string}")
+                    with state_lock:
+                        net_weight = weight
+                        gross_weight = weight
+                match_end = match.end()
+
+            if match_end:
+                buffer = buffer[match_end:]
+            elif len(buffer) > MAX_BUFFER:
+                # No frame boundary found in a while -- drop stale bytes instead of
+                # growing unbounded (e.g. a garbled or desynced stream).
+                buffer = buffer[-MAX_BUFFER:]
         except Exception as err:
             log("ERROR", f"Scale Parse Error: {err}")
 
@@ -226,12 +243,19 @@ def on_message(client, userdata, message):
 
         # ---------- TARE ----------
         if payload.get("action") == "TARE":
+            # NOTE: writing b"T" to trigger a remote tare on the Aczet CY 3102 is
+            # UNVERIFIED -- the captured protocol (see FRAME_RE above) is a
+            # continuous read-only stream with no documented command set, so
+            # there's no confirmed evidence this byte does anything. Watch the
+            # live reading after a TARE request to see if it actually zeros; if
+            # not, taring may only be possible via the balance's own front-panel
+            # button.
             try:
                 port.write(b"T")
             except (serial.SerialException, AttributeError) as err:
                 log("ERROR", f"Serial Write Error (TARE): {err}")
             else:
-                log("INFO", f"Tare Command Sent to Scale | ReqID={payload.get('reqId')}")
+                log("INFO", f"Tare Command Sent to Scale (unverified command) | ReqID={payload.get('reqId')}")
 
             gross, net, tare = read_weights()
 
