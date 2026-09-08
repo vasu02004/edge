@@ -14,8 +14,8 @@ Type=simple
 # `rclone config` must have the DRIVE_REMOTE (default "gdrive:") set up for
 # whichever User this runs as (root's rclone config, not another user's).
 User=root
-WorkingDirectory=/root/edge
-ExecStart=/root/edge/venv/bin/python3 main.py --stream
+WorkingDirectory=/home/raspberry/edge
+ExecStart=/home/raspberry/edge/venv/bin/python3 main.py --stream
 Restart=always
 RestartSec=5
 StandardOutput=journal
