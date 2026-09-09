@@ -61,7 +61,6 @@ if ! grep -q "alias zrok='zrok2'" ~/.bashrc 2>/dev/null; then
     echo "==> Adding 'zrok' alias for zrok2 to ~/.bashrc"
     echo "alias zrok='zrok2'" >> ~/.bashrc
 fi
-source ~/.bashrc
 
 # --- 4. systemd unit ---------------------------------------------------
 SERVICE_SRC="tools/systemd/edge-tracker.service"
@@ -88,4 +87,6 @@ cat <<EOF
 
     Don't forget to add your .env and rclone.conf files to this device —
     they aren't part of the repo and won't come from git.
+
+    Run 'source ~/.bashrc' (or open a new shell) to pick up the 'zrok' alias.
 EOF
