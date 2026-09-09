@@ -88,5 +88,10 @@ cat <<EOF
     Don't forget to add your .env and rclone.conf files to this device —
     they aren't part of the repo and won't come from git.
 
+    If your user or repo path differs from 'raspberry' / /home/raspberry/edge,
+    edit tools/systemd/edge-tracker.service (User/WorkingDirectory/ExecStart)
+    before/after running this script, then:
+      sudo systemctl daemon-reload && sudo systemctl restart edge-tracker.service
+
     Run 'source ~/.bashrc' (or open a new shell) to pick up the 'zrok' alias.
 EOF
