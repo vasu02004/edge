@@ -30,11 +30,14 @@ else
 fi
 
 # --- 3. External tools needed for camera recording/upload ------------------
-for bin in ffmpeg rclone; do
-    if ! command -v "$bin" >/dev/null 2>&1; then
-        echo "!! WARNING: '$bin' not found on PATH — required if RECORDING_ENABLED=true in .env"
-    fi
-done
+if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "!! WARNING: 'ffmpeg' not found on PATH — required if RECORDING_ENABLED=true in .env"
+fi
+
+if ! command -v rclone >/dev/null 2>&1; then
+    echo "==> Installing rclone"
+    curl -sSf https://rclone.org/install.sh | sudo bash
+fi
 if command -v rclone >/dev/null 2>&1; then
     if ! sudo rclone listremotes 2>/dev/null | grep -q .; then
         echo "!! WARNING: no rclone remotes configured for root — run 'sudo rclone config' to set up DRIVE_REMOTE"
@@ -45,6 +48,20 @@ RECORDINGS_DIR="$(grep -E '^RECORDINGS_DIR=' .env | cut -d= -f2- || true)"
 if [ -n "$RECORDINGS_DIR" ]; then
     sudo mkdir -p "$RECORDINGS_DIR"
 fi
+
+# --- 3b. zrok / OpenZiti tunnel ---------------------------------------------
+if ! command -v zrok2 >/dev/null 2>&1 && ! command -v zrok >/dev/null 2>&1; then
+    echo "==> Installing zrok (OpenZiti)"
+    curl -sSf get.openziti.io/install.bash | sudo bash -s zrok2
+else
+    echo "==> zrok already installed, skipping"
+fi
+
+if ! grep -q "alias zrok='zrok2'" ~/.bashrc 2>/dev/null; then
+    echo "==> Adding 'zrok' alias for zrok2 to ~/.bashrc"
+    echo "alias zrok='zrok2'" >> ~/.bashrc
+fi
+source ~/.bashrc
 
 # --- 4. systemd unit ---------------------------------------------------
 SERVICE_SRC="tools/systemd/edge-tracker.service"
@@ -68,4 +85,7 @@ cat <<EOF
       sudo systemctl restart edge-tracker.service
     Tail logs with:
       journalctl -u edge-tracker.service -f
+
+    Don't forget to add your .env and rclone.conf files to this device —
+    they aren't part of the repo and won't come from git.
 EOF
