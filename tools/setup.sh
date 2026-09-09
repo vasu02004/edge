@@ -50,17 +50,16 @@ if [ -n "$RECORDINGS_DIR" ]; then
 fi
 
 # --- 3b. zrok / OpenZiti tunnel ---------------------------------------------
-if ! command -v zrok2 >/dev/null 2>&1 && ! command -v zrok >/dev/null 2>&1; then
+if ! command -v zrok >/dev/null 2>&1; then
     echo "==> Installing zrok (OpenZiti)"
-    curl -sSf get.openziti.io/install.bash | sudo bash -s zrok2
+    curl -sSf get.openziti.io/install.bash | sudo bash -s zrok
 else
     echo "==> zrok already installed, skipping"
 fi
 
-if ! grep -q "alias zrok='zrok2'" ~/.bashrc 2>/dev/null; then
-    echo "==> Adding 'zrok' alias for zrok2 to ~/.bashrc"
-    echo "alias zrok='zrok2'" >> ~/.bashrc
-fi
+# Older setup runs may have left a broken 'zrok -> zrok2' alias (zrok2 was
+# never a real binary) — drop it so plain 'zrok' works.
+sed -i "/alias zrok='zrok2'/d" ~/.bashrc 2>/dev/null || true
 
 # --- 4. systemd unit ---------------------------------------------------
 SERVICE_SRC="tools/systemd/edge-tracker.service"
@@ -92,6 +91,4 @@ cat <<EOF
     edit tools/systemd/edge-tracker.service (User/WorkingDirectory/ExecStart)
     before/after running this script, then:
       sudo systemctl daemon-reload && sudo systemctl restart edge-tracker.service
-
-    Run 'source ~/.bashrc' (or open a new shell) to pick up the 'zrok' alias.
 EOF
