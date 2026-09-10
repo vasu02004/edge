@@ -297,6 +297,11 @@ def detection_loop(
     last_logged_zone = {}
     last_within_boundary = {}
     last_open_close_label = None
+    # Persists across loop iterations, holding the latest YOLO reading between its
+    # own (less frequent) detection cycles — must exist before YOLO ever runs once,
+    # or the ALERT_OPENED_EARLY check below would hit a NameError on early frames.
+    current_open_close_label = None
+    last_opened_early_alert = {}
     motion_ref_frame = None
     checks_since_full = 0
     consecutive_grab_fails = 0
@@ -522,6 +527,23 @@ def detection_loop(
                                 vault_number=registry.vault_number,
                                 shelf_number=shelf_number,
                             )
+
+                for label in visible_this_frame:
+                    state = tray_state_machine.state_for(label)
+                    is_opened_early = current_open_close_label == "open" and state != TRAY_ON_TABLE
+                    if is_opened_early and not last_opened_early_alert.get(label, False):
+                        print(
+                            f"{RED}[{time.strftime('%H:%M:%S')}] ALERT_OPENED_EARLY "
+                            f"tray={label} state={state}{RESET}"
+                        )
+                        event_publisher.publish(
+                            "ALERT_OPENED_EARLY",
+                            tray_label=label,
+                            vault_number=registry.vault_number,
+                            shelf_number=registry.shelf_number_for(label),
+                            state=state,
+                        )
+                    last_opened_early_alert[label] = is_opened_early
 
                 for d in registered:
                     d["state"] = tray_state_machine.state_for(d["tray_label"])
