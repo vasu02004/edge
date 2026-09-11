@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 import paho.mqtt.client as mqtt
 
 from config import BRANCH_ID, MQTT_BROKER_URL, MQTT_EVENTS_TOPIC, MQTT_PASSWORD, MQTT_USERNAME
+from mqtt.tls_auth import configure_auth
 from notify.google_chat import GoogleChatNotifier
 
 
@@ -37,10 +38,7 @@ class EventPublisher:
 
         parsed = urlparse(broker_url)
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-        if username:
-            self.client.username_pw_set(username, password)
-        if parsed.scheme == "mqtts":
-            self.client.tls_set()
+        configure_auth(self.client, broker_url, username, password)
         self.client.on_connect = self._on_connect
         self.client.on_disconnect = self._on_disconnect
         self.client.reconnect_delay_set(min_delay=1, max_delay=30)
