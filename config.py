@@ -58,6 +58,13 @@ MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
 MQTT_EVENTS_TOPIC = os.getenv("MQTT_EVENTS_TOPIC", "vault/events")
 
+# AWS IoT Core X.509 device-certificate auth (mutual TLS) — set these three to
+# connect this way instead of username/password. Takes precedence over
+# MQTT_USERNAME/MQTT_PASSWORD when MQTT_CERT_PATH is set.
+MQTT_CA_PATH = os.getenv("MQTT_CA_PATH", "")
+MQTT_CERT_PATH = os.getenv("MQTT_CERT_PATH", "")
+MQTT_KEY_PATH = os.getenv("MQTT_KEY_PATH", "")
+
 # Google Chat webhook for human-reviewer notifications (validation phase: every
 # event notifies, not just alerts — reviewers cross-check each one against CCTV
 # footage). Blank = disabled.
