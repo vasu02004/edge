@@ -140,9 +140,9 @@ ZONE_DRAW_COLORS = {
 OPEN_CLOSE_LABEL_COLORS = {"open": (0, 200, 0), "closed": (0, 0, 220)}
 
 #will be changed after the camera is placed in a branch with its height and area coverage
-ARUCO_FRAME_INTERVAL = 3
+ARUCO_FRAME_INTERVAL = 1
 # Heavier YOLO open/close model runs on a slower cadence than the cheap ArUco check.
-YOLO_FRAME_INTERVAL = 6
+YOLO_FRAME_INTERVAL = 3
 CAPTURE_LOOP_DELAY = 0.01
 
 # Motion gating (MOTION_GATING_ENABLED itself is env-driven, see config.py):
