@@ -1,11 +1,14 @@
 import json
 import time
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 import paho.mqtt.client as mqtt
 
 from config import BRANCH_ID, MQTT_BROKER_URL, MQTT_EVENTS_TOPIC, MQTT_PASSWORD, MQTT_USERNAME
 from notify.google_chat import GoogleChatNotifier
+
+IST = timezone(timedelta(hours=5, minutes=30))
 
 
 class EventPublisher:
@@ -103,8 +106,22 @@ class EventPublisher:
 
         detail_bits = " ".join(f"{k}={_fmt(k, v)}" for k, v in payload.items() if k not in skip)
 
-        parts = [f"[{payload['event_type']}]", payload["branch_id"], location, detail_bits, f"@ {payload['timestamp']}"]
+        event_label = payload["event_type"]
+        parts = [
+            f"[{event_label}]",
+            payload["branch_id"],
+            location,
+            detail_bits,
+            f"@ {EventPublisher._format_timestamp_ist(payload['timestamp'])}",
+        ]
         return " ".join(p for p in parts if p)
+
+    @staticmethod
+    def _format_timestamp_ist(timestamp: str) -> str:
+        # timestamps are always produced by publish() as UTC ("...Z"); IST has no DST
+        # so a fixed +5:30 offset is exact, no tzdata dependency needed.
+        utc_dt = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        return utc_dt.astimezone(IST).strftime("%d %b %Y, %I:%M:%S %p IST")
 
     def close(self):
         if self.client is not None:
