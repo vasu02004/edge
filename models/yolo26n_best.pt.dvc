@@ -1,0 +1,5 @@
+outs:
+- md5: 1b489d5cfbd016088cd34f49283f2250
+  size: 5384005
+  hash: md5
+  path: yolo26n_best.pt
