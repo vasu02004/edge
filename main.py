@@ -97,6 +97,7 @@ from camera.ffmpeg_capture import FfmpegDualOutputCapture, UploadWorker
 from config import (
     ACTIVE_HOURS_END,
     ACTIVE_HOURS_START,
+    ARUCO_FRAME_INTERVAL,
     CAMERA_AUTO_EXPOSURE,
     CAMERA_BRIGHTNESS,
     CAMERA_SOURCE,
@@ -104,8 +105,10 @@ from config import (
     FRAME_HEIGHT,
     FRAME_WIDTH,
     OPEN_CLOSE_IMG_SIZE,
+    MOTION_FORCE_RECHECK_EVERY,
     MOTION_GATING_ENABLED,
     OPEN_CLOSE_MODEL_PATH,
+    YOLO_FRAME_INTERVAL,
     RECORDING_BITRATE,
     RECORDING_ENABLED,
     RECORDING_HEIGHT,
@@ -139,19 +142,14 @@ ZONE_DRAW_COLORS = {
 
 OPEN_CLOSE_LABEL_COLORS = {"open": (0, 200, 0), "closed": (0, 0, 220)}
 
-#will be changed after the camera is placed in a branch with its height and area coverage
-ARUCO_FRAME_INTERVAL = 3
-# Heavier YOLO open/close model runs on a slower cadence than the cheap ArUco check.
-YOLO_FRAME_INTERVAL = 6
 CAPTURE_LOOP_DELAY = 0.01
 
-# Motion gating (MOTION_GATING_ENABLED itself is env-driven, see config.py):
-# skip a detection cycle entirely if the scene hasn't changed since the last
-# one — trays sit still between pick/place events, so most cycles on a fixed
-# vault camera are otherwise wasted work.
+# Motion gating (MOTION_GATING_ENABLED and MOTION_FORCE_RECHECK_EVERY are
+# env-driven, see config.py): skip a detection cycle entirely if the scene
+# hasn't changed since the last one — trays sit still between pick/place
+# events, so most cycles on a fixed vault camera are otherwise wasted work.
 MOTION_CHECK_SIZE = (160, 90)
 MOTION_THRESHOLD = 2.0
-MOTION_FORCE_RECHECK_EVERY = 30
 
 STATS_INTERVAL = 5.0
 

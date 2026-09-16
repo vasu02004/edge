@@ -4,3 +4,6 @@ ncnn
 requests
 python-dotenv
 paho-mqtt
+dvc[s3]
+dotenv
+awscli

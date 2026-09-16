@@ -25,6 +25,12 @@ FRAME_HEIGHT = int(os.getenv("FRAME_HEIGHT", "360"))
 
 ARUCO_DICTIONARY = os.getenv("ARUCO_DICTIONARY", "DICT_6X6_250")
 
+# Will be tuned after the camera is placed in a branch, based on its height and
+# area coverage. Heavier YOLO open/close model runs on a slower cadence than
+# the cheap ArUco check.
+ARUCO_FRAME_INTERVAL = int(os.getenv("ARUCO_FRAME_INTERVAL", "3"))
+YOLO_FRAME_INTERVAL = int(os.getenv("YOLO_FRAME_INTERVAL", "6"))
+
 BRANCH_ID = os.getenv("BRANCH_ID", "branch_001")
 TRAY_REGISTRY_PATH = os.getenv("TRAY_REGISTRY_PATH", f"registry/{BRANCH_ID}_trays.json")
 ZONE_CONFIG_PATH = os.getenv("ZONE_CONFIG_PATH", f"zone_config/{BRANCH_ID}_zones.json")
@@ -49,6 +55,7 @@ STATS_LOG_PATH = os.getenv("STATS_LOG_PATH", "stats.csv")
 # the last one — trays sit still between pick/place events, so most cycles on a
 # fixed vault camera are otherwise wasted work.
 MOTION_GATING_ENABLED = os.getenv("MOTION_GATING_ENABLED", "false").lower() == "true"
+MOTION_FORCE_RECHECK_EVERY = int(os.getenv("MOTION_FORCE_RECHECK_EVERY", "30"))
 
 # MQTT event publishing
 # Left blank = publishing disabled (EventPublisher no-ops), so this stays optional
