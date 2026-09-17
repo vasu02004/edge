@@ -65,11 +65,6 @@ MQTT_CA_PATH = os.getenv("MQTT_CA_PATH", "")
 MQTT_CERT_PATH = os.getenv("MQTT_CERT_PATH", "")
 MQTT_KEY_PATH = os.getenv("MQTT_KEY_PATH", "")
 
-# Google Chat webhook for human-reviewer notifications (validation phase: every
-# event notifies, not just alerts — reviewers cross-check each one against CCTV
-# footage). Blank = disabled.
-GOOGLE_CHAT_WEBHOOK_URL = os.getenv("GOOGLE_CHAT_WEBHOOK_URL", "")
-
 # Recording + upload of the raw camera feed, for CCTV-style footage review
 # (separate from the annotated --stream output). Only applies when CAMERA_SOURCE
 # is a local device (e.g. /dev/video0) -- ignored for an HTTP camera source such
