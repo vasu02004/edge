@@ -97,7 +97,7 @@ class EventPublisher:
             location_bits.append(f"shelf={payload['shelf_number']}")
         location = " ".join(location_bits)
 
-        skip = {"event_type", "branch_id", "vault_number", "shelf_number", "tray_label", "timestamp"}
+        skip = {"event_type", "branch_id", "vault_number", "shelf_number", "tray_label", "timestamp", "box"}
 
         def _fmt(key, value):
             if key == "confidence" and isinstance(value, (int, float)):
