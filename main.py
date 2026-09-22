@@ -125,7 +125,7 @@ from detection.zones import ZoneChecker
 from mqtt.event_publisher import EventPublisher
 from registry.tray_registry import TrayRegistry
 from state_machine.rules import check_wrong_tray
-from state_machine.tray_state import IDLE, TRAY_ON_TABLE, TRAY_PICKED, TrayStateMachine
+from state_machine.tray_state import IDLE, TRAY_IN_TRANSIT, TRAY_ON_TABLE, TrayStateMachine
 from streaming.mjpeg_server import MJPEGStreamer
 
 RED = "\033[91m"
@@ -431,7 +431,7 @@ def detection_loop(
                         new_state=new_state,
                     )
 
-                    if new_state == TRAY_PICKED:
+                    if old_state == IDLE and new_state == TRAY_IN_TRANSIT:
                         event, details = check_wrong_tray(label, aurus_guard_client, registry)
                         shelf_number = registry.shelf_number_for(label)
                         if event == "WRONG_TRAY":
