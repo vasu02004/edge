@@ -420,7 +420,7 @@ def detection_loop(
 
                 visible_this_frame = {d["tray_label"]: d["zone"] for d in registered}
 
-                for label, old_state, new_state in tray_state_machine.update(visible_this_frame):
+                for label, old_state, new_state, duration_out in tray_state_machine.update(visible_this_frame):
                     print(f"[{time.strftime('%H:%M:%S')}] STATE_TRANSITION tray={label} {old_state} -> {new_state}")
                     event_publisher.publish(
                         "STATE_TRANSITION",
@@ -430,6 +430,22 @@ def detection_loop(
                         old_state=old_state,
                         new_state=new_state,
                     )
+
+                    if new_state == IDLE and duration_out is not None:
+                        minutes, seconds = divmod(int(duration_out), 60)
+                        duration_str = f"{minutes}m {seconds}s"
+                        print(
+                            f"[{time.strftime('%H:%M:%S')}] TRAY_OUT_DURATION tray={label} "
+                            f"duration={duration_str}"
+                        )
+                        event_publisher.publish(
+                            "TRAY_OUT_DURATION",
+                            tray_label=label,
+                            vault_number=registry.vault_number,
+                            shelf_number=registry.shelf_number_for(label),
+                            duration_seconds=round(duration_out, 1),
+                            duration=duration_str,
+                        )
 
                     if old_state == IDLE and new_state == TRAY_IN_TRANSIT:
                         event, details = check_wrong_tray(label, aurus_guard_client, registry)
@@ -777,6 +793,11 @@ def main():
 
                 if reason == "quit":
                     break
+                if reason == "deadline":
+                    # Active-hours window closed naturally -- any tray still
+                    # showing as out (or a leftover _left_vault_at timestamp for
+                    # one the camera never saw return) is stale by tomorrow.
+                    tray_state_machine.reset()
                 # "deadline" or "cap_lost": loop back around, re-check active
                 # hours and reopen the camera.
         else:
