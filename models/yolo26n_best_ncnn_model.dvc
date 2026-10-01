@@ -1,0 +1,6 @@
+outs:
+- md5: c629dde6d4f6c496e8638d96579497c9.dir
+  size: 9630854
+  nfiles: 5
+  hash: md5
+  path: yolo26n_best_ncnn_model
