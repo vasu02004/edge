@@ -50,18 +50,20 @@ STATS_LOG_PATH = os.getenv("STATS_LOG_PATH", "stats.csv")
 # fixed vault camera are otherwise wasted work.
 MOTION_GATING_ENABLED = os.getenv("MOTION_GATING_ENABLED", "false").lower() == "true"
 
-# MQTT event publishing
-# Left blank = publishing disabled (EventPublisher no-ops), so this stays optional
-# until configured.
+# MQTT event publishing + pickup verification. Left blank = disabled (both
+# EventPublisher and PickupVerifier no-op), so this stays optional until
+# configured. Topics are derived (vault/{thing}/{vault}/{shelf}/...), not
+# configurable, so they stay inside what the AWS IoT device policy authorizes.
 MQTT_BROKER_URL = os.getenv("MQTT_BROKER_URL", "")
 MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
-MQTT_EVENTS_TOPIC = os.getenv("MQTT_EVENTS_TOPIC", "vault/events")
 
-# Google Chat webhook for human-reviewer notifications (validation phase: every
-# event notifies, not just alerts — reviewers cross-check each one against CCTV
-# footage). Blank = disabled.
-GOOGLE_CHAT_WEBHOOK_URL = os.getenv("GOOGLE_CHAT_WEBHOOK_URL", "")
+# AWS IoT Core X.509 device-certificate auth (mutual TLS) — set these three to
+# connect this way instead of username/password. Takes precedence over
+# MQTT_USERNAME/MQTT_PASSWORD when MQTT_CERT_PATH is set.
+MQTT_CA_PATH = os.getenv("MQTT_CA_PATH", "")
+MQTT_CERT_PATH = os.getenv("MQTT_CERT_PATH", "")
+MQTT_KEY_PATH = os.getenv("MQTT_KEY_PATH", "")
 
 # Recording + upload of the raw camera feed, for CCTV-style footage review
 # (separate from the annotated --stream output). Only applies when CAMERA_SOURCE
