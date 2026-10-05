@@ -118,11 +118,12 @@ from config import (
     VERBOSE_LATENCY_LOGS,
     parse_camera_source,
 )
-from aurus_guard.client import AurusGuardClient
+from aurus_guard.pickup_verifier import PickupVerifier
 from detection.aruco_detector import ArucoDetector
 from detection.open_close_detector import OpenCloseDetector
 from detection.zones import ZoneChecker
 from mqtt.event_publisher import EventPublisher
+from mqtt.shared_client import SharedMqttClient
 from registry.tray_registry import TrayRegistry
 from state_machine.rules import check_wrong_tray
 from state_machine.tray_state import IDLE, TRAY_IN_TRANSIT, TRAY_ON_TABLE, TrayStateMachine
@@ -276,7 +277,7 @@ def detection_loop(
     registry,
     zones,
     tray_state_machine,
-    aurus_guard_client,
+    pickup_verifier,
     event_publisher,
     stats_csv,
     stats_log_file,
@@ -448,7 +449,7 @@ def detection_loop(
                         )
 
                     if old_state == IDLE and new_state == TRAY_IN_TRANSIT:
-                        event, details = check_wrong_tray(label, aurus_guard_client, registry)
+                        event, details = check_wrong_tray(label, pickup_verifier, registry)
                         shelf_number = registry.shelf_number_for(label)
                         if event == "WRONG_TRAY":
                             print(
@@ -505,7 +506,7 @@ def detection_loop(
                         # now; if not, a tray sitting outside the vault with zero
                         # authorization is alert-worthy regardless of whether the
                         # camera caught the pickup moment.
-                        event, details = check_wrong_tray(label, aurus_guard_client, registry)
+                        event, details = check_wrong_tray(label, pickup_verifier, registry)
                         shelf_number = registry.shelf_number_for(label)
                         if event in ("WRONG_TRAY", "NO_ACTIVE_ASSIGNMENT"):
                             print(
@@ -684,8 +685,9 @@ def main():
     zones = ZoneChecker()
     print(f"Loaded zone config for {zones.branch_id}")
     tray_state_machine = TrayStateMachine()
-    aurus_guard_client = AurusGuardClient()
-    event_publisher = EventPublisher()
+    shared_mqtt = SharedMqttClient()
+    pickup_verifier = PickupVerifier(shared_mqtt)
+    event_publisher = EventPublisher(shared_mqtt)
 
     streamer = None
     window_name = None
@@ -747,7 +749,7 @@ def main():
         registry=registry,
         zones=zones,
         tray_state_machine=tray_state_machine,
-        aurus_guard_client=aurus_guard_client,
+        pickup_verifier=pickup_verifier,
         event_publisher=event_publisher,
         stats_csv=stats_csv,
         stats_log_file=stats_log_file,
@@ -815,7 +817,7 @@ def main():
         if upload_worker is not None:
             upload_worker.stop()
         stats_log_file.close()
-        event_publisher.close()
+        shared_mqtt.close()
 
 
 if __name__ == "__main__":

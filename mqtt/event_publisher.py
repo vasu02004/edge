@@ -1,70 +1,56 @@
 import json
 import time
-from datetime import datetime, timedelta, timezone
-from urllib.parse import urlparse
 
 import paho.mqtt.client as mqtt
 
-from config import BRANCH_ID, MQTT_BROKER_URL, MQTT_EVENTS_TOPIC, MQTT_PASSWORD, MQTT_USERNAME
-from notify.google_chat import GoogleChatNotifier
-
-IST = timezone(timedelta(hours=5, minutes=30))
+from config import BRANCH_ID
+from mqtt.shared_client import SharedMqttClient
 
 
 class EventPublisher:
-    """Publishes detection events (state transitions, open/close, alerts) to a flat
-    MQTT topic — vault/events — with full identity (branch/vault/shelf) carried in
-    the JSON payload rather than the topic path, since unlike aurusguard-pi's
-    bridge.js (an addressed request/response), we're pushing telemetry with no
-    incoming request to route against. Also fans each event out to Google Chat
-    (via GoogleChatNotifier) so a human reviewer gets notified — during this
-    validation phase that's every event, not just alerts, since reviewers
-    cross-check each one against CCTV footage.
+    """Publishes detection events (state transitions, open/close, alerts) over
+    vault/{thing}/{vault_number}/{shelf_number}/data — the same per-device,
+    per-shelf topic shape PickupVerifier's requests use, not a flat vault/events
+    topic. The company AWS IoT device policy only authorizes iot:Publish on
+    vault/${ThingName}/*/*/data (and the RFID scan topic); a flat vault/events
+    topic isn't covered by it. Publishing there over AWS IoT Core gets the
+    connection killed by the broker as a policy violation, and since it's a
+    QoS-1 message that never gets PUBACK'd, the MQTT library keeps redelivering
+    it on every reconnect -- a permanent disconnect/reconnect loop that (since
+    this shares one connection with PickupVerifier, see shared_client.py) would
+    take the whole Pi offline, not just event publishing. Confirmed against the
+    real company AWS IoT Core endpoint before this fix.
+
+    Events without a real shelf_number (e.g. OPEN_CLOSE_DETECTION, which is
+    whole-vault-door, not per-shelf) fall back to shelf_number 0 for the topic
+    only -- the payload still carries the real (possibly None) shelf_number.
+
+    aurus-guard's weight-scale handler already reads this same topic shape and
+    currently only special-cases {"event": "TRAY_PICKED", ...} messages on it;
+    everything this class publishes uses "event_type" instead specifically to
+    avoid colliding with that dispatch. The backend doesn't yet have a consumer
+    for these event_type messages -- until it does, it will fall through into
+    weight-processing logic for them, which is expected and tracked separately,
+    not something this class can fix from the edge side.
+
+    Pi only ever does this one MQTT publish — no HTTPS, no notification logic, no
+    secrets beyond the MQTT broker credentials it already needs. The backend is
+    what subscribes, stores it, and decides what to notify (Google Chat today,
+    PagerDuty or anything else later) — keeping that decision, and those
+    secrets, off every device in the field.
+
+    Shares its MQTT connection with PickupVerifier (see mqtt/shared_client.py) —
+    AWS IoT Core's device policy only allows one client_id per device, so two
+    independent connections fight over it.
     """
 
-    def __init__(
-        self,
-        broker_url: str = MQTT_BROKER_URL,
-        username: str = MQTT_USERNAME,
-        password: str = MQTT_PASSWORD,
-        topic: str = MQTT_EVENTS_TOPIC,
-        chat_notifier: GoogleChatNotifier = None,
-    ):
-        self.topic = topic
-        self.enabled = bool(broker_url)
-        self.client = None
-        self.chat_notifier = chat_notifier if chat_notifier is not None else GoogleChatNotifier()
-        if not self.enabled:
-            print("EventPublisher: MQTT_BROKER_URL not set, MQTT publishing disabled")
-            return
-
-        parsed = urlparse(broker_url)
-        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-        if username:
-            self.client.username_pw_set(username, password)
-        if parsed.scheme == "mqtts":
-            self.client.tls_set()
-        self.client.on_connect = self._on_connect
-        self.client.on_disconnect = self._on_disconnect
-        self.client.reconnect_delay_set(min_delay=1, max_delay=30)
-
-        try:
-            self.client.connect_async(parsed.hostname, parsed.port or 8883, keepalive=60)
-            self.client.loop_start()
-        except Exception as e:
-            print(f"EventPublisher: connection setup failed: {e}")
-            self.enabled = False
-
-    def _on_connect(self, client, userdata, flags, reason_code, properties=None):
-        if reason_code == 0:
-            print("EventPublisher: connected to MQTT broker")
-        else:
-            print(f"EventPublisher: connect failed, reason_code={reason_code}")
-
-    def _on_disconnect(self, client, userdata, flags, reason_code, properties=None):
-        print(f"EventPublisher: disconnected from MQTT broker (reason_code={reason_code})")
+    def __init__(self, shared: SharedMqttClient):
+        self.shared = shared
+        self.enabled = shared.enabled
 
     def publish(self, event_type: str, tray_label=None, vault_number=None, shelf_number=None, **extra):
+        if not self.enabled:
+            return
         payload = {
             "event_type": event_type,
             "branch_id": BRANCH_ID,
@@ -75,55 +61,10 @@ class EventPublisher:
         }
         payload.update(extra)
 
-        if self.enabled:
-            try:
-                result = self.client.publish(self.topic, json.dumps(payload), qos=1)
-                if result.rc != mqtt.MQTT_ERR_SUCCESS:
-                    print(f"EventPublisher: publish failed rc={result.rc} event={event_type}")
-            except Exception as e:
-                print(f"EventPublisher: publish error: {e} event={event_type}")
-
-        self.chat_notifier.notify(self._format_message(payload))
-
-    @staticmethod
-    def _format_message(payload: dict) -> str:
-        # vault_number is constant across this branch's messages (not worth repeating),
-        # and shelf_number is redundant once tray_label is shown — both still travel in
-        # full in the MQTT JSON payload, this only trims the human-readable Chat text.
-        location_bits = []
-        if payload.get("tray_label"):
-            location_bits.append(f"tray={payload['tray_label']}")
-        elif payload.get("shelf_number") is not None:
-            location_bits.append(f"shelf={payload['shelf_number']}")
-        location = " ".join(location_bits)
-
-        skip = {"event_type", "branch_id", "vault_number", "shelf_number", "tray_label", "timestamp", "box"}
-
-        def _fmt(key, value):
-            if key == "confidence" and isinstance(value, (int, float)):
-                return f"{value:.0%}"
-            return str(value)
-
-        detail_bits = " ".join(f"{k}={_fmt(k, v)}" for k, v in payload.items() if k not in skip)
-
-        event_label = payload["event_type"]
-        parts = [
-            f"[{event_label}]",
-            payload["branch_id"],
-            location,
-            detail_bits,
-            f"@ {EventPublisher._format_timestamp_ist(payload['timestamp'])}",
-        ]
-        return " ".join(p for p in parts if p)
-
-    @staticmethod
-    def _format_timestamp_ist(timestamp: str) -> str:
-        # timestamps are always produced by publish() as UTC ("...Z"); IST has no DST
-        # so a fixed +5:30 offset is exact, no tzdata dependency needed.
-        utc_dt = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-        return utc_dt.astimezone(IST).strftime("%d %b %Y, %I:%M:%S %p IST")
-
-    def close(self):
-        if self.client is not None:
-            self.client.loop_stop()
-            self.client.disconnect()
+        topic = f"vault/{self.shared.thing}/{vault_number}/{shelf_number if shelf_number is not None else 0}/data"
+        try:
+            result = self.shared.client.publish(topic, json.dumps(payload), qos=1)
+            if result.rc != mqtt.MQTT_ERR_SUCCESS:
+                print(f"EventPublisher: publish failed rc={result.rc} event={event_type}")
+        except Exception as e:
+            print(f"EventPublisher: publish error: {e} event={event_type}")

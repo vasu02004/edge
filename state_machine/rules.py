@@ -1,14 +1,18 @@
-from aurus_guard.client import get_expected_tray_label
+from aurus_guard.pickup_verifier import PickupVerificationTimeout
 
 
-def check_wrong_tray(picked_label: str, client, registry):
+def check_wrong_tray(picked_label: str, verifier, registry):
+    shelf_number = registry.shelf_number_for(picked_label)
     try:
-        expected_label = get_expected_tray_label(client, registry)
-    except Exception as e:
+        active_location = verifier.get_active_location(picked_label, registry.vault_number, shelf_number)
+    except PickupVerificationTimeout as e:
         return "ASSIGNMENT_LOOKUP_FAILED", {"picked": picked_label, "reason": str(e)}
 
-    if expected_label is None:
+    if active_location is None:
         return "NO_ACTIVE_ASSIGNMENT", {"picked": picked_label}
+
+    active_vault, active_shelf = active_location
+    expected_label = registry.label_for_location(active_vault, active_shelf)
 
     if expected_label != picked_label:
         return "WRONG_TRAY", {"picked": picked_label, "expected": expected_label}
