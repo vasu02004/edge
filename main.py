@@ -302,6 +302,7 @@ def detection_loop(
     # or the ALERT_OPENED_EARLY check below would hit a NameError on early frames.
     current_open_close_label = None
     last_opened_early_alert = {}
+    last_multiple_trays_out = False
     motion_ref_frame = None
     checks_since_full = 0
     consecutive_grab_fails = 0
@@ -543,6 +544,23 @@ def detection_loop(
                                 vault_number=registry.vault_number,
                                 shelf_number=shelf_number,
                             )
+
+                labels_out = tray_state_machine.labels_out()
+                if len(labels_out) >= 2:
+                    if not last_multiple_trays_out:
+                        print(
+                            f"{RED}[{time.strftime('%H:%M:%S')}] ALERT_MULTIPLE_TRAYS_OUT "
+                            f"trays={labels_out}{RESET}"
+                        )
+                        event_publisher.publish(
+                            "ALERT_MULTIPLE_TRAYS_OUT",
+                            vault_number=registry.vault_number,
+                            tray_labels=labels_out,
+                            count=len(labels_out),
+                        )
+                    last_multiple_trays_out = True
+                else:
+                    last_multiple_trays_out = False
 
                 for label in visible_this_frame:
                     state = tray_state_machine.state_for(label)

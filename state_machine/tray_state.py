@@ -51,6 +51,11 @@ class TrayStateMachine:
     def state_for(self, tray_label: str) -> str:
         return self._states.get(tray_label, IDLE)
 
+    def labels_out(self) -> list:
+        """Labels currently not IDLE, i.e. away from the vault (in transit or on
+        the table)."""
+        return [label for label, state in self._states.items() if state != IDLE]
+
     def reset(self):
         """Clears all tracked per-tray state. Call at the end of the active-hours
         window so a tray that never made it back to IDLE that day (camera miss,
