@@ -1,0 +1,5 @@
+outs:
+- md5: a926fc997aa8f4653f4da52ff3562f40
+  size: 8493882
+  hash: md5
+  path: yolo26n_best_ncnn_model.tar.gz
