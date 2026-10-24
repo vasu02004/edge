@@ -302,6 +302,7 @@ def detection_loop(
     last_opened_early_alert = {}
     motion_ref_frame = None
     checks_since_full = 0
+    yolo_pending = False
     consecutive_grab_fails = 0
 
     stats_window_start = time.monotonic()
@@ -340,6 +341,7 @@ def detection_loop(
                     score is not None
                     and score < MOTION_THRESHOLD
                     and checks_since_full < MOTION_FORCE_RECHECK_EVERY
+                    and not yolo_pending
                 )
             if unchanged:
                 checks_since_full += 1
@@ -382,7 +384,11 @@ def detection_loop(
                         )
                     last_within_boundary[label] = within_boundary
 
-                if frame_count % YOLO_FRAME_INTERVAL == 0:
+                run_yolo = frame_count % YOLO_FRAME_INTERVAL == 0 or yolo_pending
+                # A gated cycle that skipped YOLO owes it a run on the next check, or a
+                # quick lid flip that then goes still waits for the forced recheck.
+                yolo_pending = MOTION_GATING_ENABLED and not run_yolo
+                if run_yolo:
                     t0 = time.perf_counter()
                     open_close_detections = open_close_detector.detect(frame)
                     yolo_ms = (time.perf_counter() - t0) * 1000
